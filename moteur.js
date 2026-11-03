@@ -100,6 +100,7 @@
   // Virement sortant que la banque classe en « Epargne financière » : le virement d'épargne du mois.
   // Passe avant les règles personnelles, qui rangent ces virements dans les mouvements internes.
   const EPARGNE = 'Virement d’épargne';
+  const SUIVI_DEFAUT = '2026-10';
   function regleEpargne(o) {
     return o.montant < 0 && /^VIR /.test(norm(o.libelle).toUpperCase()) && /^epargne financi/i.test(o.cat || '') ? { bloc: 'Interne', poste: EPARGNE } : null;
   }
@@ -289,7 +290,10 @@
       const dp = r2(somme(postesBudget.map((p) => net(mois, p))));
       return { rv, fx, dp, v: r2(rv - fx - dp - envMois) };
     };
-    const premierMois = ops.length ? moisDecale(ops.reduce((m, o) => (o.mois < m ? o.mois : m), '9999-99'), 1) : mt;
+    // Le budget actuel (avec le prêt) ne vaut qu'à partir de `suivi_depuis` : le report et la caisse partent de ce mois
+    const premierOps = ops.length ? moisDecale(ops.reduce((m, o) => (o.mois < m ? o.mois : m), '9999-99'), 1) : mt;
+    const suivi = bundle.suivi_depuis || SUIVI_DEFAUT;
+    const premierMois = suivi > premierOps ? suivi : premierOps;
     let report = 0;
     for (let m = premierMois; m < mt; m = moisDecale(m, 1)) report = Math.min(0, r2(brutVirement(m).v + report));
     const vir = brutVirement(mt), virTotal = r2(vir.v + report);
@@ -340,13 +344,145 @@
       S('tr_etat', 'État du virement', virTotal <= 0 ? 'Rien à virer ce mois-ci.' : deja === 0 ? 'Pas encore fait.' : resteVir <= 0 ? 'Fait' + (resteVir < 0 ? ' (' + (-resteVir).toFixed(2).replace('.', ',') + ' € de plus que prévu).' : '.') : 'En partie fait.'),
       S('tr_note', 'Report', virTotal < 0 ? 'Rien à virer : ' + (-virTotal).toFixed(2).replace('.', ',') + ' € seront déduits du virement du mois prochain.' : 'Montant à virer sur ton compte d’épargne en début de mois.')
     ];
+    // ---------- Vue « Ce mois-ci » ----------
+    const jourOf = (iso) => Number(iso.slice(8, 10));
+    const nbJours = new Date(Date.UTC(Number(mc.slice(0, 4)), Number(mc.slice(5, 7)), 0)).getUTCDate();
+    const auj = exp.slice(0, 7) === mc ? jourOf(exp) : nbJours;
+    // Jour habituel d'une opération : celui du dernier passage (charges fixes, salaire)
+    const jourHabituel = (poste) => { const l = ops.filter((o) => o.poste === poste && o.mois < mc).sort((a, b) => (a.date < b.date ? 1 : -1))[0]; return l ? Math.min(jourOf(l.date), nbJours) : null; };
+    const jSalaire = jourHabituel('Salaire') || 28;
+    const jEnv = Math.min(jSalaire + 1, nbJours);
+    const blocsBudget = { Loisirs: 0, 'Charges variables': 0 };
+    moisEnCours.forEach((l) => { blocsBudget[l.bloc] += l.depense; });
+    const envMc = parType('Enveloppe annuelle').map((r) => {
+      const dep = r2(-somme(ops.filter((o) => o.poste === r.poste && o.mois >= mc.slice(0, 4) + '-01' && o.mois <= mc).map((o) => Number(o.montant))));
+      return ligne(r, 'Enveloppes', Number(r.montant), dep, { depense_mois: net(mc, r.poste) });
+    });
+    const envDepMc = r2(somme(envMc.map((l) => l.depense_mois)));
+    // Courbe : revenus du mois, moins les charges fixes et les dépenses du budget au jour le jour, moins la part des enveloppes le lendemain du salaire
+    const parJour = new Array(nbJours + 1).fill(0);
+    ops.filter((o) => o.mois === mc && (postesFixes.includes(o.poste) || postesBudget.includes(o.poste))).forEach((o) => { parJour[jourOf(o.date)] += Number(o.montant); });
+    const fixesMc = parType('Charge fixe').map((r) => {
+      const passe = net(mc, r.poste), j = jourHabituel(r.poste);
+      let attendu = Number(r.montant);
+      if (r.id === 'prime') attendu = mc.slice(5) === '02' ? r2(attendu * 12) : 0;
+      if (r.id === 'sport') attendu = net(mt, r.poste);
+      return { poste: r.poste, passe, attendu: r2(attendu), jour: j || nbJours, reste: passe > 0.01 ? 0 : r2(attendu) };
+    });
+    const courbe = [{ j: 0, v: revMc.total }];
+    let v = revMc.total;
+    for (let j = 1; j <= auj; j++) { v += parJour[j]; if (j === jEnv) v -= envMois; courbe.push({ j, v: r2(v) }); }
+    const resteBudget = somme(moisEnCours.map((l) => Math.max(0, l.reste)));
+    const proj = [{ j: auj, v: r2(v) }];
+    for (let j = auj + 1; j <= nbJours; j++) {
+      v -= resteBudget / (nbJours - auj);
+      fixesMc.forEach((f) => { if (f.reste > 0 && Math.max(f.jour, auj + 1) === j) v -= f.reste; });
+      if (j === jEnv) v -= envMois;
+      proj.push({ j, v: r2(v) });
+    }
+    const aVenir = fixesMc.filter((f) => f.reste > 0).map((f) => ({ jour: f.jour, libelle: f.poste, detail: f.jour < auj ? 'charge fixe, pas encore vue' : 'charge fixe', montant: -f.reste }))
+      .concat(jEnv > auj ? [{ jour: jEnv, libelle: 'Part des enveloppes', detail: 'vers la caisse des enveloppes', montant: -r2(envMois) }] : [])
+      .concat(jSalaire >= auj && recu(mc, 'Salaire') === 0 ? [{ jour: jSalaire, libelle: 'Salaire', detail: 'attendu, compte pour ' + moisNom(moisDecale(mc, 1)), montant: ref('rev_sal') }] : [])
+      .sort((a, b) => a.jour - b.jour);
+
+    // Caisse des enveloppes : part mensuelle versée depuis le début du suivi, moins tout ce qui a été dépensé dans les enveloppes
+    const postesEnv = parType('Enveloppe annuelle').map((r) => r.poste);
+    let nbVerse = 0; for (let m = suivi; m <= mt; m = moisDecale(m, 1)) nbVerse++;
+    const envDepuis = r2(-somme(ops.filter((o) => o.mois >= suivi && postesEnv.includes(o.poste)).map((o) => Number(o.montant))));
+    const caisse = { depuis: moisLabel(suivi), verse: r2(nbVerse * envMois), depense: envDepuis, valeur: r2(nbVerse * envMois - envDepuis) };
+
+    const vue = {
+      mc, mois_mc: moisLabel(mc), auj, nbJours, revenus: revMc.total,
+      prevu: { loisirs: r2(budgetLoisirs(revMc.total)), variables, env: r2(envMois), fixes },
+      depense: { loisirs: r2(blocsBudget.Loisirs), variables: r2(blocsBudget['Charges variables']), env: envDepMc },
+      postes: moisEnCours, enveloppes: envMc, courbe, projection: proj, fin: r2(v), jEnv, aVenir,
+      epargne: { mois: moisLabel(mt), a_virer: Math.max(0, virTotal), deja, reste: Math.max(0, resteVir) },
+      caisse, nc, fixKo: fixesL.filter((l) => !l.ok).map((l) => l.poste),
+      normal: { revenus: r2(ref('rev_sal') + ref('rev_caf') + ref('rev_al')), fixes, variables, env: r2(envMois), loisirs: r2(loisirsNormal), epargne: r2(partagerNormal - loisirsNormal) },
+      patrimoine: patrimoine(bundle, mc, fixes + variables + envMois + loisirsNormal)
+    };
+
     // Les montants calculés de la page Règles suivent les montants de référence
     const refsAff = refs.map((r) => (r.id === 'part_loisirs' ? Object.assign({}, r, { montant: r2(part * 100) }) : r.id === 'env_mois' ? Object.assign({}, r, { montant: r2(envMois) }) : r));
     return {
       datasets: { mois_courant: moisCourant, mois_en_cours: moisEnCours, operations: ops, references: refsAff, regles: bundle.regles || [], synthese },
-      textes: { mois: moisNom(mt), mois_lib: moisLabel(mt), mois_mc: moisLabel(mc), annee: an, annee_suiv: String(Number(an) + 1) }
+      textes: { mois: moisNom(mt), mois_lib: moisLabel(mt), mois_mc: moisLabel(mc), annee: an, annee_suiv: String(Number(an) + 1) },
+      vue
     };
   }
+
+  // ---------- Patrimoine ----------
+  // bundle.patrimoine : { livret: {valeur, date}, pea: [{date, valeur}], tr: {date, solde, fins: {mois: solde}}, pret: {capital, date, taux, mensualite, debut} }
+  // Livret A : valeur saisie, ajustée par les virements depuis ou vers le livret vus sur le compte courant.
+  function patrimoine(bundle, mc, depMois) {
+    const P = bundle.patrimoine || {}, ops = bundle.operations || [];
+    const finMois = (m) => m + '-31';
+    const fluxLivret = ops.filter((o) => /LIVRET A/i.test(o.libelle) && o.bloc === 'Interne');
+    const livretAu = (d) => {
+      if (!P.livret) return null;
+      const b = P.livret;
+      return r2(d >= b.date
+        ? b.valeur - fluxLivret.filter((o) => o.date > b.date && o.date <= d).reduce((s, o) => s + Number(o.montant), 0)
+        : b.valeur + fluxLivret.filter((o) => o.date > d && o.date <= b.date).reduce((s, o) => s + Number(o.montant), 0));
+    };
+    // Avant la première valeur saisie, le PEA compte pour 0 (sauf pour la valeur du jour)
+    const peaAu = (d) => { const l = (P.pea || []).filter((x) => x.date <= d).sort((a, b) => (a.date < b.date ? 1 : -1))[0]; return l ? l.valeur : (P.pea || []).length ? 0 : null; };
+    const trAu = (m) => {
+      if (!P.tr) return null;
+      const ks = Object.keys(P.tr.fins || {}).filter((k) => k <= m).sort();
+      return ks.length ? P.tr.fins[ks[ks.length - 1]] : 0;
+    };
+    const detteAu = (m) => {
+      const p = P.pret; if (!p) return null;
+      if (p.debut && m < p.debut) return 0;
+      const t = Number(p.taux) / 100 / 12, k0 = p.date.slice(0, 7);
+      let c = Number(p.capital);
+      if (m >= k0) for (let x = k0; x < m; x = moisDecale(x, 1)) c = Math.max(0, c * (1 + t) - p.mensualite);
+      else for (let x = k0; x > m; x = moisDecale(x, -1)) c = (c + p.mensualite) / (1 + t);
+      return r2(c);
+    };
+    const finPret = () => {
+      const p = P.pret; if (!p || !(p.mensualite > 0)) return null;
+      const t = Number(p.taux) / 100 / 12; let c = Number(p.capital), m = p.date.slice(0, 7), n = 0;
+      while (c > 0.01 && n < 600) { c = c * (1 + t) - p.mensualite; m = moisDecale(m, 1); n++; }
+      return moisLabel(m);
+    };
+    const aujourd = bundle.export || new Date().toISOString().slice(0, 10);
+    const livret = livretAu(aujourd), pea = peaAu(aujourd), tr = P.tr ? P.tr.solde : null, dette = detteAu(mc);
+    const brut = r2((livret || 0) + (pea || 0) + (tr || 0)), netV = r2(brut - (dette || 0));
+    // Courbe : fins de mois, depuis le déblocage du prêt (ou 12 mois au plus)
+    let m0 = moisDecale(mc, -11);
+    if (P.pret && P.pret.debut && P.pret.debut > m0) m0 = P.pret.debut;
+    const courbe = [];
+    for (let m = m0; m <= mc; m = moisDecale(m, 1)) {
+      const d = m === mc ? aujourd : finMois(m);
+      const b = r2((livretAu(d) || 0) + (peaAu(d) || 0) + (m === mc ? tr || 0 : trAu(m) || 0)), dt = detteAu(m) || 0;
+      courbe.push({ mois: m, brut: b, dette: dt, net: r2(b - dt) });
+    }
+    const peaDer = (P.pea || []).slice().sort((a, b) => (a.date < b.date ? 1 : -1))[0];
+    return {
+      complet: livret !== null && pea !== null && tr !== null && dette !== null,
+      livret, pea, pea_date: peaDer ? frDate(peaDer.date) : '', tr, tr_date: P.tr ? frDate(P.tr.date) : '',
+      dette, fin_pret: finPret(), brut, net: netV, courbe,
+      matelas: depMois > 0 ? Math.round(((livret || 0) + (tr || 0)) / depMois * 10) / 10 : 0
+    };
+  }
+
+  // ---------- Export Trade Republic (CSV) ----------
+  // Solde espèces du compte titres (hors PEA) : somme des montants, frais et impôts ; solde de chaque fin de mois.
+  function lireTR(texte) {
+    const lignes = texte.replace(/^﻿/, '').split(/\r?\n/).filter((l) => l.trim());
+    const champs = (l) => { const out = []; let cur = '', q = false; for (let i = 0; i < l.length; i++) { const c = l[i]; if (q) { if (c === '"') { if (l[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += c; } else if (c === '"') q = true; else if (c === ',') { out.push(cur); cur = ''; } else cur += c; } out.push(cur); return out; };
+    const h = champs(lignes[0]), ix = (n) => h.indexOf(n);
+    const iD = ix('date'), iA = ix('amount'), iF = ix('fee'), iT = ix('tax'), iC = ix('account_type');
+    if (iD < 0 || iA < 0 || iC < 0) throw new Error('Ce CSV ne ressemble pas à un export Trade Republic.');
+    const rows = lignes.slice(1).map(champs).filter((c) => c[iC] !== 'PEA' && /^\d{4}-\d\d-\d\d/.test(c[iD])).sort((a, b) => (a[iD] < b[iD] ? -1 : 1));
+    const n = (x) => (x ? Number(x) : 0);
+    let s = 0; const fins = {};
+    rows.forEach((c) => { s += n(c[iA]) + n(c[iF]) + n(c[iT]); fins[c[iD].slice(0, 7)] = r2(s); });
+    return { date: rows.length ? rows[rows.length - 1][iD].slice(0, 10) : '', solde: r2(s), fins };
+  }
+  const estTR = (texte) => /"?account_type"?/.test(texte.slice(0, 400)) && /"?transaction_id"?/.test(texte.slice(0, 400));
 
   // ---------- Remise à jour annuelle des montants de référence ----------
   // Propose des montants à partir des 12 derniers mois terminés. `coche` : appliqué par défaut.
@@ -421,6 +557,6 @@
     return 0;
   }
 
-  const api = { lireExport, importer, reclasser, calculer, proposer, lireZip, postes, marchand };
+  const api = { lireExport, importer, reclasser, calculer, proposer, lireZip, postes, marchand, lireTR, estTR };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.Moteur = api;
 })(typeof window !== 'undefined' ? window : globalThis);

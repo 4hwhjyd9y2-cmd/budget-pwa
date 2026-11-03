@@ -105,6 +105,13 @@
       let texte, nomCsv = nom;
       if (/\.zip$/i.test(nom) || f.type === 'application/zip') { const z = await M.lireZip(await f.arrayBuffer()); texte = z.texte; nomCsv = z.nom; }
       else texte = await f.text();
+      // Export Trade Republic : met à jour le solde espèces dans le patrimoine
+      if (M.estTR(texte)) {
+        const tr = M.lireTR(texte);
+        sauver(Object.assign({}, bundle, { patrimoine: Object.assign({}, bundle.patrimoine, { tr }) }));
+        sessionStorage.setItem('budget-msg', 'Trade Republic : solde espèces de ' + eur(tr.solde) + ' au ' + tr.date.split('-').reverse().join('/') + '.');
+        location.hash = 'duree'; location.reload(); return;
+      }
       const r = M.importer(bundle, texte, nomCsv);
       sauver(r.bundle);
       sessionStorage.setItem('budget-msg', r.stats.lues + ' opérations lues, ' + r.stats.nouvelles + ' nouvelle' + (r.stats.nouvelles > 1 ? 's' : '') +
@@ -170,8 +177,8 @@
   });
   let refId = null;
   document.addEventListener('click', (e) => {
-    const tr = e.target.closest('[data-draw="trefs"] tr.edit'); if (!tr || !bundle) return;
-    const r = bundle.references.find((x) => x.id === tr.dataset.key); if (!r) return;
+    const tr = e.target.closest('[data-draw="trefs"] tr.edit, [data-ref]'); if (!tr || !bundle) return;
+    const r = bundle.references.find((x) => x.id === (tr.dataset.ref || tr.dataset.key)); if (!r) return;
     refId = r.id;
     $('ref-titre').textContent = r.poste;
     $('ref-type').textContent = r.type + (r.type === 'Enveloppe annuelle' ? ' : montant pour l’année' : r.type === 'Loisir' ? ' : montant d’un mois normal' : ' : montant par mois');
@@ -207,25 +214,8 @@
   const rappelAnnuel = () => {
     if (!bundle || !bundle.export) return;
     const an = bundle.export.slice(0, 4), mois = bundle.export.slice(5, 7);
-    if (mois <= '02' && bundle.refs_maj !== an && $('app-msg').hidden) msg('Nouvelle année : les enveloppes repartent à zéro. Mets à jour tes montants de référence (onglet Règles, « Recalculer sur les 12 derniers mois »).');
+    if (mois <= '02' && bundle.refs_maj !== an && $('app-msg').hidden) msg('Nouvelle année : les enveloppes repartent à zéro. Mets à jour tes montants de référence (onglet Règles, « Recalcul de janvier »).');
   };
-
-  // ---------- Pilotage : tableau du mois en cours ----------
-  const td = (tr, t, cls) => { const c = document.createElement('td'); if (cls) c.className = cls; c.textContent = t; tr.append(c); };
-  const lignesMc = () => window.dash.data('mois_en_cours').data;
-  window.dash.draw('tpostes_mc', (tb) => {
-    tb.replaceChildren(...lignesMc().map((r) => {
-      const tr = document.createElement('tr');
-      td(tr, r.poste); td(tr, r.bloc, 'hide-sm'); td(tr, eur(r.depense), 'num'); td(tr, eur(r.seuil), 'num'); td(tr, eur(r.reste), 'num' + (r.reste < 0 ? ' neg' : ''));
-      return tr;
-    }));
-  });
-  window.dash.draw('fpostes_mc', (tf) => {
-    const l = lignesMc(), t = (k) => Math.round(l.reduce((s, r) => s + Number(r[k]), 0) * 100) / 100;
-    const tr = document.createElement('tr'), re = t('reste');
-    td(tr, 'Total'); td(tr, '', 'hide-sm'); td(tr, eur(t('depense')), 'num'); td(tr, eur(t('seuil')), 'num'); td(tr, eur(re), 'num' + (re < 0 ? ' neg' : ''));
-    tf.replaceChildren(tr);
-  });
 
   // ---------- Règles « toujours ce marchand » ----------
   window.dash.draw('perso', (ul) => {
@@ -239,6 +229,12 @@
       li.append(t, b); return li;
     }));
   });
+
+  // Accès pour les vues (vues.js)
+  window.App = {
+    bundle: () => bundle, calc: () => calc, eur, msg, dialogue, boutons, sauvegarder,
+    maj(b, texte) { bundle = b; sauver(bundle); rafraichir(); if (texte) msg(texte); }
+  };
 
   if (bundle) {
     $('app-bar').hidden = false;

@@ -229,7 +229,7 @@
     };
     ul.replaceChildren(
       li(nc === 0, nc === 0 ? 'Toutes les opérations de l’export sont classées.' : nc + (nc > 1 ? ' opérations ne sont pas classées' : ' opération n’est pas classée') + ' : les jauges peuvent être trop optimistes.', 'donnees'),
-      li(ko.length === 0, ko.length === 0 ? 'Charges fixes du mois : toutes conformes.' : 'Charges fixes à vérifier : ' + ko.map((r) => r.poste + ' (' + r.etat.toLowerCase() + ')').join(', ') + '.', 'pilotage'));
+      li(ko.length === 0, ko.length === 0 ? 'Charges fixes du mois : toutes conformes.' : 'Charges fixes à vérifier : ' + ko.map((r) => r.poste + ' (' + r.etat.toLowerCase() + ')').join(', ') + '.'));
   });
   dash.draw('tfix', (tb) => {
     const rows = rowsOf('mois_courant').filter((r) => r.bloc === 'Charges fixes');
