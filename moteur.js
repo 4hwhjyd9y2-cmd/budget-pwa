@@ -267,6 +267,21 @@
     });
     const moisCourant = lignesMt.concat(env, [global], fixesL);
 
+    // Virement d'épargne de fin de mois : revenus - charges fixes passées - loisirs et charges variables dépensés - part des enveloppes.
+    // Un résultat négatif est reporté sur le mois suivant.
+    const postesFixes = parType('Charge fixe').map((r) => r.poste);
+    const postesBudget = parType('Loisir').concat(parType('Charge variable')).map((r) => r.poste);
+    const brutVirement = (mois) => {
+      const rv = revenusDe(mois, false).total;
+      const fx = r2(somme(postesFixes.map((p) => net(mois, p))));
+      const dp = r2(somme(postesBudget.map((p) => net(mois, p))));
+      return { rv, fx, dp, v: r2(rv - fx - dp - envMois) };
+    };
+    const premierMois = ops.length ? moisDecale(ops.reduce((m, o) => (o.mois < m ? o.mois : m), '9999-99'), 1) : mt;
+    let report = 0;
+    for (let m = premierMois; m < mt; m = moisDecale(m, 1)) report = Math.min(0, r2(brutVirement(m).v + report));
+    const vir = brutVirement(mt), virTotal = r2(vir.v + report);
+
     // Mois en cours
     const revMc = revenusDe(mc, true);
     const moisEnCours = budget(mc, revMc, { mois: mc });
@@ -297,12 +312,58 @@
       S('mc_caf_etat', 'État CAF', revMc.cafEtat),
       S('mc_al', 'Action Logement', revMc.al, '€'),
       S('mc_al_etat', 'État Action Logement', revMc.alEtat),
-      S('mc_loisirs', 'Budget loisirs du mois en cours', r2(budgetLoisirs(revMc.total)), '€')
+      S('mc_loisirs', 'Budget loisirs du mois en cours', r2(budgetLoisirs(revMc.total)), '€'),
+      S('tr_mois', 'Mois du virement', moisLabel(mt)),
+      S('tr_revenus', 'Revenus du mois', vir.rv, '€'),
+      S('tr_fixes', 'Charges fixes passées', vir.fx, '€'),
+      S('tr_depenses', 'Loisirs et charges variables dépensés', vir.dp, '€'),
+      S('tr_env', 'Part mensuelle des enveloppes', r2(envMois), '€'),
+      S('tr_report', 'Report du mois précédent', report, '€'),
+      S('tr_virement', 'À virer', Math.max(0, virTotal), '€'),
+      S('tr_note', 'Report', virTotal < 0 ? 'Rien à virer : ' + (-virTotal).toFixed(2).replace('.', ',') + ' € seront déduits du virement du mois prochain.' : 'Montant à virer sur ton compte d’épargne en début de mois.')
     ];
+    // Les montants calculés de la page Règles suivent les montants de référence
+    const refsAff = refs.map((r) => (r.id === 'part_loisirs' ? Object.assign({}, r, { montant: r2(part * 100) }) : r.id === 'env_mois' ? Object.assign({}, r, { montant: r2(envMois) }) : r));
     return {
-      datasets: { mois_courant: moisCourant, mois_en_cours: moisEnCours, operations: ops, references: refs, regles: bundle.regles || [], synthese },
+      datasets: { mois_courant: moisCourant, mois_en_cours: moisEnCours, operations: ops, references: refsAff, regles: bundle.regles || [], synthese },
       textes: { mois: moisNom(mt), annee: an, annee_suiv: String(Number(an) + 1) }
     };
+  }
+
+  // ---------- Remise à jour annuelle des montants de référence ----------
+  // Propose des montants à partir des 12 derniers mois terminés. `coche` : appliqué par défaut.
+  function proposer(bundle) {
+    const refs = bundle.references, ops = bundle.operations;
+    const exp = bundle.export || ops.reduce((m, o) => (o.date > m ? o.date : m), '');
+    const mt = moisDecale(exp.slice(0, 7), -1), debut = moisDecale(mt, -11);
+    const dans = (o) => o.mois >= debut && o.mois <= mt;
+    const somme12 = (poste) => r2(-ops.filter((o) => dans(o) && o.poste === poste).reduce((s, o) => s + Number(o.montant), 0));
+    const recu12 = (poste) => -somme12(poste);
+    const dernierMois = (poste) => { for (let m = mt; m >= debut; m = moisDecale(m, -1)) { const v = r2(-ops.filter((o) => o.mois === m && o.poste === poste).reduce((s, o) => s + Number(o.montant), 0)); if (v > 0) return { v, m }; } return null; };
+    const periode = moisLabel(debut) + ' à ' + moisLabel(mt);
+    const out = [];
+    const P = (r, propose, base, coche) => { if (propose === null || !isFinite(propose)) return; out.push({ id: r.id, type: r.type, poste: r.poste, actuel: Number(r.montant), propose: r2(propose), base, coche: coche && Math.abs(r2(propose) - Number(r.montant)) >= 0.01 }); };
+    refs.forEach((r) => {
+      if (r.type === 'Revenu') {
+        if (r.id === 'rev_sal') P(r, recu12('Salaire') / 12, 'Moyenne des salaires versés de ' + periode, true);
+        else if (r.id === 'rev_caf') { const l = ops.filter((o) => o.poste === 'CAF' && o.montant > 0).sort((a, b) => (a.date < b.date ? 1 : -1))[0]; if (l) P(r, Number(l.montant), 'Dernier versement (' + l.jour + ')', true); }
+        else if (r.id === 'rev_al') P(r, recu12('Action Logement') / 12, 'Total reçu de ' + periode + ', divisé par 12', true);
+      } else if (r.type === 'Charge fixe') {
+        if (r.id === 'sport' || r.id === 'prime') {
+          // Abonnement récent : pas assez d'historique pour une moyenne fiable
+          const mois = new Set(ops.filter((o) => dans(o) && o.poste === r.poste && o.montant < 0).map((o) => o.mois)).size;
+          if (r.id === 'prime' ? mois >= 1 : mois >= 10) P(r, somme12(r.poste) / 12, 'Total payé de ' + periode + ', divisé par 12', true);
+        }
+        else { const d = dernierMois(r.poste); if (d) P(r, d.v, 'Montant passé en ' + moisLabel(d.m), true); }
+      } else if (r.type === 'Charge variable' || r.type === 'Loisir') {
+        P(r, somme12(r.poste) / 12, 'Moyenne réelle de ' + periode + ' (seuil à décider)', false);
+      } else if (r.type === 'Enveloppe annuelle') {
+        const c = somme12(r.poste);
+        if (r.id === 'entretien') P(r, c * 0.9, 'Cumul de ' + periode + ' (' + String(c.toFixed(2)).replace('.', ',') + ' €) moins 10 %', true);
+        else P(r, c, 'Cumul net de ' + periode, r.id === 'sante');
+      }
+    });
+    return { periode, lignes: out };
   }
 
   // ---------- Zip (export bancaire compressé) ----------
@@ -342,6 +403,6 @@
     return 0;
   }
 
-  const api = { lireExport, importer, reclasser, calculer, lireZip, postes, marchand };
+  const api = { lireExport, importer, reclasser, calculer, proposer, lireZip, postes, marchand };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.Moteur = api;
 })(typeof window !== 'undefined' ? window : globalThis);

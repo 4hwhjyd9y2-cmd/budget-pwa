@@ -57,16 +57,26 @@ body {
 .app-dlg select { font: inherit; font-size: 16px; padding: 8px; border: 1px solid var(--color-border-line); border-radius: 10px; background: var(--color-panel); color: var(--color-fg); width: 100%; }
 .app-dlg label { display: flex; gap: 8px; align-items: center; font-size: 14px; }
 .app-dlg .row { display: flex; gap: 8px; justify-content: flex-end; }
-[data-draw="tops"] tr { cursor: pointer; }
+[data-draw="tops"] tr, [data-draw="trefs"] tr.edit { cursor: pointer; }
+[data-draw="trefs"] tr.edit td.num { text-decoration: underline dotted; text-underline-offset: 3px; }
+.bm-big { font-family: var(--font-anthropic-serif); font-weight: 400; font-size: 1.6em; }
+.app-save { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; border-color: var(--color-warn); }
+.app-perso { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 13px; }
+.app-perso li { display: flex; gap: 8px; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--color-border-line); padding: 4px 0; }
+.app-dlg input[type="text"], .app-dlg input[inputmode] { font: inherit; font-size: 16px; padding: 8px; border: 1px solid var(--color-border-line); border-radius: 10px; background: var(--color-panel); color: var(--color-fg); width: 100%; box-sizing: border-box; }
+.app-prop { display: grid; gap: 6px; max-height: 55vh; overflow: auto; }
+.app-prop label { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: start; font-size: 13px; border-bottom: 1px solid var(--color-border-line); padding: 6px 0; }
+.app-prop small { display: block; color: var(--color-fg-muted); }
 </style>
 </head>
 <body>
 <div class="app-bar" id="app-bar" hidden>
   <span id="app-maj"></span>
-  <button class="app-btn" type="button" id="app-export">Exporter</button>
+  <button class="app-btn" type="button" id="app-export">Sauvegarder</button>
   <button class="app-btn primary" type="button" id="app-import">Importer</button>
 </div>
 <div class="app-msg" id="app-msg" hidden></div>
+<div class="app-msg app-save" id="app-save" hidden><span id="app-save-txt"></span> <button class="app-btn primary" type="button" id="app-save-btn">Sauvegarder maintenant</button></div>
 <input type="file" id="app-file" accept=".csv,.CSV,.zip,.json,text/csv,application/zip,application/json" hidden>
 <div class="app-empty" id="app-empty" hidden>
   <h1>Budget de Marin</h1>
@@ -181,6 +191,12 @@ body {
       <h2>Mois terminé : <span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=mois">—</span></h2>
       <p class="bm-take">Revenus du mois : <b data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=revenus">—</b>, soit le salaire versé fin <span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=salaire_mois">—</span> (<span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=salaire">—</span>), la CAF (<span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=caf">—</span>) et Action Logement (<span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=al">—</span>). Budget loisirs du mois : <b data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=loisirs_mois">—</b>.</p>
     </div>
+    <div class="bm-card" id="c-virement">
+      <h2>Virement d’épargne pour <span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=tr_mois">—</span></h2>
+      <p class="bm-take">À virer sur Trade Republic : <b class="bm-big"><span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=tr_virement">—</span></b></p>
+      <p class="bm-note"><span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=tr_note">—</span></p>
+      <p class="bm-note">Calcul : revenus <span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=tr_revenus">—</span> − charges fixes passées <span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=tr_fixes">—</span> − loisirs et charges variables dépensés <span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=tr_depenses">—</span> − part des enveloppes <span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=tr_env">—</span> + report du mois précédent <span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=tr_report">—</span>.</p>
+    </div>
     <div class="bm-card bm-cat" id="c-loisirs" data-draw="cat" data-source="mois_courant" data-bloc="Loisirs" data-per="en {mois}" data-tone="#7F77DD" data-ic="verre" data-note="Les montants prévus suivent les revenus du mois."></div>
 
     <div class="bm-card bm-cat" id="c-variables" data-draw="cat" data-source="mois_courant" data-bloc="Charges variables" data-per="en {mois}" data-tone="#378ADD" data-ic="panier" data-note="Montants prévus fixes."></div>
@@ -251,10 +267,17 @@ body {
     </div>
     <div class="bm-card" id="c-refs">
       <h2>Montants de référence</h2>
+      <p class="bm-note">Touche un montant pour le modifier. Les montants « Calcul » se mettent à jour tout seuls.</p>
+      <div class="bm-ctrl"><button class="app-btn" type="button" id="app-proposer">Recalculer sur les 12 derniers mois</button></div>
       <div class="bm-tbox"><table data-source="references" data-row-key="id">
         <thead><tr><th data-field="type">Type</th><th data-field="poste">Poste</th><th data-field="montant" class="num">Montant</th><th data-field="note" class="hide-sm">Base</th></tr></thead>
         <tbody data-draw="trefs"></tbody>
       </table></div>
+    </div>
+    <div class="bm-card" id="c-perso">
+      <h2>Tes règles « toujours ce marchand »</h2>
+      <p class="bm-note">Créées en reclassant une opération. Les supprimer ne change pas les opérations déjà classées.</p>
+      <ul class="app-perso" data-draw="perso"></ul>
     </div>
     <div class="bm-card" id="c-regles">
       <h2>Règles de classement</h2>
