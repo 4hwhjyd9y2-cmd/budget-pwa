@@ -81,7 +81,7 @@
   }
 
   // Règles personnelles : stockées dans les données (regles_auto), jamais dans le code publié.
-  // Format : {motif: expression régulière sur le libellé en majuscules, sens: 'credit'|'debit', montant, bloc, poste}
+  // Format : {motif: expression régulière sur le libellé en majuscules, sens: 'credit'|'debit', montant, mois: '01'..'12', max (montant absolu maximal), bloc, poste}
   function reglePerso(o, regles) {
     const L = norm(o.libelle).toUpperCase(), m = o.montant;
     for (const r of regles) {
@@ -90,6 +90,8 @@
       if (r.sens === 'credit' && !(m > 0)) continue;
       if (r.sens === 'debit' && !(m < 0)) continue;
       if (r.montant !== undefined && r.montant !== null && Math.abs(m - Number(r.montant)) > 0.005) continue;
+      if (r.mois && o.date.slice(5, 7) !== r.mois) continue;
+      if (r.max !== undefined && Math.abs(m) > Number(r.max)) continue;
       return { bloc: r.bloc, poste: r.poste };
     }
     return null;
@@ -214,15 +216,17 @@
     const envMois = somme(parType('Enveloppe annuelle').map((r) => Number(r.montant))) / 12;
     const loisirsNormal = somme(parType('Loisir').map((r) => Number(r.montant)));
     const partagerNormal = ref('rev_sal') + ref('rev_caf') + ref('rev_al') - fixes - envMois - variables;
-    const part = partagerNormal > 0 ? loisirsNormal / partagerNormal : 0;
+    // Part des loisirs arrondie au centième de pourcent (75,66 %), comme dans le classeur
+    const part = partagerNormal > 0 ? Math.round(loisirsNormal / partagerNormal * 10000) / 10000 : 0;
     const budgetLoisirs = (rev) => Math.max(0, (rev - fixes - envMois - variables) * part);
 
-    const dernier = (poste, avant) => { const l = ops.filter((o) => o.poste === poste && o.montant > 0 && o.mois <= avant).sort((a, b) => (a.date < b.date ? 1 : -1))[0]; return l ? Number(l.montant) : 0; };
+    // Montant habituel d'un versement : le plus fréquent dans l'historique (Action Logement : 100 €)
+    const habituel = (poste) => { const n = {}; ops.forEach((o) => { if (o.poste === poste && o.montant > 0) n[o.montant] = (n[o.montant] || 0) + 1; }); const e = Object.entries(n).sort((a, b) => b[1] - a[1] || b[0] - a[0])[0]; return e ? Number(e[0]) : 0; };
     const revenusDe = (mois, enCours) => {
       const sal = recu(moisDecale(mois, -1), 'Salaire');
       let caf = recu(mois, 'CAF'), al = recu(mois, 'Action Logement'), cafEtat = 'reçue', alEtat = 'reçue';
-      if (enCours && caf === 0) { caf = dernier('CAF', mois) || ref('rev_caf'); cafEtat = 'attendue'; }
-      if (enCours && al === 0) { al = dernier('Action Logement', mois) || ref('rev_al'); alEtat = 'attendue'; }
+      if (enCours && caf === 0) { caf = ref('rev_caf'); cafEtat = 'attendue'; }
+      if (enCours && al === 0) { al = habituel('Action Logement') || ref('rev_al'); alEtat = 'attendue'; }
       return { sal, caf, al, cafEtat, alEtat, total: r2(sal + caf + al) };
     };
 
@@ -245,17 +249,21 @@
     });
     const gS = somme(lignesMt.map((l) => l.seuil)), gD = somme(lignesMt.map((l) => l.depense));
     const global = { id: 'global', bloc: 'Global', poste: 'Budget du mois (loisirs et charges variables)', seuil: r2(gS), depense: r2(gD), reste: r2(gS - gD), pct_reste: gS ? Math.round((gS - gD) / gS * 100) : 0 };
-    const eur = (v) => String(r2(v).toFixed(2)).replace('.', ',') + ' €';
     const fixesL = parType('Charge fixe').map((r) => {
       const dep = net(mt, r.poste), mtt = Number(r.montant);
       const base = { id: 'f_' + r.id, bloc: 'Charges fixes', poste: r.poste, depense: dep };
-      if (r.id === 'sport') return Object.assign(base, { seuil: null, ok: dep > 0, etat: dep > 0 ? 'Payée (' + eur(dep) + ')' : 'Pas passée', note: 'Toutes les 4 semaines' });
+      if (r.id === 'sport') {
+        // Formule de 45 € en cours, puis 30 € toutes les 4 semaines (0, 1 ou 2 paiements dans le mois)
+        const f45 = Math.abs(dep - 45) < 0.01, x30 = dep > 0 && Math.abs(dep / 30 - Math.round(dep / 30)) < 0.001;
+        const etat = f45 ? 'Formule de 45 € payée' : dep === 0 ? 'Rien ce mois, formule en cours' : x30 ? 'Conforme' : 'Écart';
+        return Object.assign(base, { seuil: null, ok: etat !== 'Écart', etat, note: 'Formule de 45 € en cours, puis 30 € toutes les 4 semaines' });
+      }
       if (r.id === 'prime') {
         const att = mt.slice(5) === '02' ? r2(mtt * 12) : 0, ok = Math.abs(dep - att) <= Math.max(1, att * 0.1);
-        return Object.assign(base, { seuil: att, ok, etat: ok ? 'Conforme' : dep === 0 ? 'Pas encore passé' : 'Montant différent', note: 'Annuel, prélevé en février' });
+        return Object.assign(base, { seuil: att, ok, etat: ok ? 'Conforme' : dep === 0 ? 'Aucun paiement trouvé' : 'Écart', note: 'Annuel, prélevé en février' });
       }
-      const ok = Math.abs(dep - mtt) <= 0.5;
-      return Object.assign(base, { seuil: mtt, ok, etat: ok ? 'Conforme' : dep === 0 ? 'Pas passé' : 'Montant différent', note: 'Mensuel' });
+      const ok = Math.abs(dep - mtt) < 0.01;
+      return Object.assign(base, { seuil: mtt, ok, etat: ok ? 'Conforme' : dep === 0 ? 'Aucun paiement trouvé' : 'Écart', note: 'Mensuel' });
     });
     const moisCourant = lignesMt.concat(env, [global], fixesL);
 
