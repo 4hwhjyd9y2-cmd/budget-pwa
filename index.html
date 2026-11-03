@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Budget</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Budget">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#f7f6f2" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1c1b19" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" href="icons/icon-192.png">
+<style>
+:root {
+  --color-fg: #1f1e1c; --color-fg-muted: #6b6862; --color-bg: #ffffff; --color-panel: #f7f6f2;
+  --color-border-line: #e3e0d8; --color-ok: #2e8b57; --color-warn: #d08a1c; --color-bad: #c43c3c;
+  --cds-chart-grid: #e8e5de; --cds-chart-status-critical: #d9534f;
+  --font-anthropic-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", sans-serif;
+  --font-anthropic-serif: "New York", ui-serif, Georgia, "Times New Roman", serif;
+  --cds-pad-xs: 4px; --cds-pad-sm: 8px; --cds-pad-md: 12px; --cds-pad-lg: 16px;
+  --cds-gap-xs: 4px; --cds-gap-sm: 8px; --cds-gap-md: 12px; --cds-gap-lg: 20px;
+  --cds-font-size-title: 26px; --cds-font-size-heading: 17px; --cds-font-size-caption: 13px;
+  --cds-font-weight-medium: 500; --cds-radius: 10px;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-fg: #efede8; --color-fg-muted: #a19d95; --color-bg: #1c1b19; --color-panel: #262522;
+    --color-border-line: #3a3834; --color-ok: #4fb37a; --color-warn: #e0a043; --color-bad: #ec6b6b;
+    --cds-chart-grid: #3a3834; --cds-chart-status-critical: #e5675f;
+  }
+}
+[hidden] { display: none !important; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--color-bg); color: var(--color-fg); font-family: var(--font-anthropic-sans);
+  padding: env(safe-area-inset-top) max(16px, env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+}
+#dash-root { padding-top: 12px; }
+.app-bar { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; align-items: center; max-width: 1150px; margin: 8px auto 0; font-size: 13px; color: var(--color-fg-muted); }
+.app-bar span { margin-right: auto; }
+.app-btn { font: inherit; font-size: 13px; padding: 6px 12px; border: 1px solid var(--color-border-line); border-radius: 999px; background: var(--color-panel); color: var(--color-fg); cursor: pointer; }
+.app-btn.primary { background: var(--color-fg); color: var(--color-bg); border-color: var(--color-fg); }
+.app-empty { max-width: 34rem; margin: 18vh auto 0; text-align: center; display: grid; gap: 14px; justify-items: center; }
+.app-empty h1 { font-family: var(--font-anthropic-serif); font-weight: 400; font-size: 30px; margin: 0; }
+.app-empty p { margin: 0; color: var(--color-fg-muted); line-height: 1.45; }
+.app-msg { max-width: 1150px; margin: 8px auto 0; font-size: 13px; padding: 8px 12px; border-radius: 10px; background: var(--color-panel); border: 1px solid var(--color-border-line); }
+.app-msg.err { color: var(--color-bad); }
+</style>
+</head>
+<body>
+<div class="app-bar" id="app-bar" hidden>
+  <span id="app-maj"></span>
+  <button class="app-btn" type="button" id="app-export">Exporter</button>
+  <button class="app-btn primary" type="button" id="app-import">Importer</button>
+</div>
+<div class="app-msg" id="app-msg" hidden></div>
+<input type="file" id="app-file" accept="application/json,.json" hidden>
+<div class="app-empty" id="app-empty" hidden>
+  <h1>Budget de Marin</h1>
+  <p>Aucune donnée sur cet appareil. Importe le fichier <b>budget-donnees.json</b> (depuis Fichiers, iCloud Drive ou AirDrop). Il reste uniquement sur ce téléphone.</p>
+  <button class="app-btn primary" type="button" id="app-import-2">Importer mes données</button>
+</div>
+<div id="dash-root">
+<style>
+#dash-root { --dash-gutter: var(--cds-pad-lg); }
+.bm { font-family: var(--font-anthropic-sans); color: var(--color-fg); font-variant-numeric: tabular-nums; max-width: 1150px; margin-inline: auto; display: grid; gap: var(--cds-gap-lg); }
+.bm h1 { font-family: var(--font-anthropic-serif); font-weight: 400; font-size: var(--cds-font-size-title); margin: 0 0 var(--cds-gap-xs); }
+.bm h2 { font-size: var(--cds-font-size-heading); font-weight: var(--cds-font-weight-medium); margin: 0; }
+.bm .bm-sub, .bm .bm-note { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); margin: 0; max-width: 80ch; }
+.bm .bm-take { margin: 0; max-width: 80ch; }
+.bm b { font-weight: 600; }
+.bm-tabs { display: flex; flex-wrap: wrap; gap: var(--cds-gap-xs); border-bottom: 1px solid var(--color-border-line); }
+.bm-tab { font: inherit; background: none; border: 0; border-bottom: 2px solid transparent; padding: var(--cds-pad-sm) var(--cds-pad-md); color: var(--color-fg-muted); cursor: pointer; }
+.bm-tab[aria-selected="true"] { color: var(--color-fg); border-bottom-color: var(--color-fg); }
+.bm-tab:focus-visible, .bm select:focus-visible, .bm input:focus-visible { outline: 2px solid var(--color-fg); outline-offset: 2px; }
+.bm-page { display: grid; gap: var(--cds-gap-lg); }
+.bm-card { background: var(--color-panel); border: 1px solid var(--color-border-line); border-radius: var(--cds-radius); padding: var(--cds-pad-lg); display: grid; gap: var(--cds-gap-sm); min-width: 0; }
+.bm-gauges { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 10.5rem), 1fr)); gap: var(--cds-gap-md); }
+.bm-g { display: grid; gap: 2px; justify-items: center; text-align: center; padding: var(--cds-pad-sm); border: 1px solid var(--color-border-line); border-radius: var(--cds-radius); background: var(--color-bg); }
+.bm-gl { font-size: var(--cds-font-size-caption); font-weight: 500; min-height: 2.4em; display: flex; align-items: center; }
+.bm-gv { width: 100%; max-width: 11rem; min-height: 96px; }
+.bm-gs { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
+.bm-global { display: grid; grid-template-columns: minmax(0, 18rem) minmax(0, 1fr); gap: var(--cds-gap-lg); align-items: center; }
+@media (max-width: 640px) { .bm-global { grid-template-columns: 1fr; } }
+.bm-global .bm-gv { max-width: 18rem; min-height: 150px; }
+.bm-ctrl { display: flex; flex-wrap: wrap; gap: var(--cds-gap-sm); }
+.bm select, .bm input[type="search"] { font: inherit; padding: var(--cds-pad-xs) var(--cds-pad-sm); border: 1px solid var(--color-border-line); border-radius: var(--cds-radius); background: var(--color-bg); color: var(--color-fg); max-width: 100%; }
+.bm input[type="search"] { flex: 1 1 14rem; }
+.bm-tbox { overflow: auto; max-height: 36rem; }
+.bm table { border-collapse: collapse; width: 100%; font-size: var(--cds-font-size-caption); }
+.bm th, .bm td { text-align: left; padding: var(--cds-pad-xs) var(--cds-pad-sm); border-bottom: 1px solid var(--color-border-line); vertical-align: top; }
+.bm thead th { position: sticky; top: 0; background: var(--color-panel); color: var(--color-fg-muted); font-weight: 500; }
+.bm .num { text-align: right; white-space: nowrap; }
+.bm .neg { color: var(--color-bad); }
+.bm-click { cursor: pointer; border-radius: var(--cds-radius); }
+.bm-click:hover { background: var(--color-panel); }
+.bm-click:focus-visible { outline: 2px solid var(--color-fg); outline-offset: 2px; }
+.bm-btn { font: inherit; font-size: var(--cds-font-size-caption); padding: 0 var(--cds-pad-sm); border: 1px solid var(--color-border-line); border-radius: var(--cds-radius); background: var(--color-bg); color: var(--color-fg); cursor: pointer; }
+.bm-btn:focus-visible { outline: 2px solid var(--color-fg); outline-offset: 2px; }
+.bm ul.bm-ctrl-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--cds-gap-xs); font-size: var(--cds-font-size-caption); }
+.bm-ctrl-list li { display: flex; flex-wrap: wrap; gap: var(--cds-gap-sm); align-items: center; }
+.bm-dot { display: inline-grid; place-items: center; width: 1.3em; height: 1.3em; border-radius: 50%; font-weight: 700; font-size: 0.85em; }
+.bm-ctrl-list li.ok .bm-dot { color: var(--color-ok); border: 1px solid currentColor; }
+.bm-ctrl-list li.ko .bm-dot { color: var(--color-bad); border: 1px solid currentColor; }
+.bm-filtre { display: flex; flex-wrap: wrap; gap: var(--cds-gap-sm); align-items: center; font-size: var(--cds-font-size-caption); }
+.bm-cat { gap: 0; }
+.bm-sec { display: grid; gap: var(--cds-gap-xs); padding-top: var(--cds-pad-md); border-top: 2px solid var(--color-border-line); }
+.bm-sec h2 { font-family: var(--font-anthropic-serif); font-weight: 400; font-size: var(--cds-font-size-title); }
+.bm-ch { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--cds-gap-sm) var(--cds-gap-md); margin-bottom: var(--cds-gap-sm); }
+.bm-ct { display: flex; align-items: center; gap: var(--cds-gap-sm); }
+.bm-ic { width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; flex: none; }
+.bm-ct h2 { margin: 0; }
+.bm-ct .bm-note { margin: 0; }
+.bm-cr { display: flex; align-items: center; gap: var(--cds-gap-sm); }
+.bm-pill { border-radius: var(--cds-radius); padding: 2px 10px; font-size: var(--cds-font-size-caption); white-space: nowrap; }
+.bm-pill b { font-family: var(--font-anthropic-serif); font-weight: 400; font-size: 1.6em; margin-right: 4px; }
+.bm-row { display: grid; grid-template-columns: minmax(0, 13rem) minmax(0, 1fr) 8.5rem; gap: var(--cds-gap-md); align-items: center; padding: var(--cds-pad-sm) var(--cds-pad-xs); border-top: 1px solid var(--color-border-line); font-size: var(--cds-font-size-caption); cursor: pointer; border-radius: 4px; }
+.bm-row:hover { background: var(--color-bg); }
+.bm-row:focus-visible { outline: 2px solid var(--color-fg); outline-offset: 1px; }
+.bm-bt { position: relative; height: 16px; border-radius: 8px; background: var(--cds-chart-grid); }
+.bm-bd { position: absolute; left: 0; top: 0; height: 16px; border-radius: 8px; }
+.bm-bm { position: absolute; top: -4px; width: 2px; height: 24px; border-radius: 1px; background: var(--color-fg); }
+.bm-rv { text-align: right; }
+.bm-rv b { font-weight: 600; font-size: 1.1em; }
+.bm-rv span { display: block; color: var(--color-fg-muted); font-size: 0.9em; }
+.bm-legend { display: flex; flex-wrap: wrap; gap: var(--cds-gap-xs) var(--cds-gap-md); font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); margin: 0; }
+.bm-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: -1px; margin-right: 4px; }
+@media (max-width: 560px) { .bm-row { grid-template-columns: minmax(0, 1fr) 7rem; } .bm-row .bm-bt { grid-column: 1 / -1; grid-row: 2; } }
+.bm tfoot td { font-weight: 600; border-top: 2px solid var(--color-border-line); border-bottom: 0; position: sticky; bottom: 0; background: var(--color-panel); }
+.bm th button.bm-sort { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-align: inherit; width: 100%; }
+.bm th button.bm-sort:focus-visible { outline: 2px solid var(--color-fg); outline-offset: 2px; }
+.bm th[aria-sort] { color: var(--color-fg); }
+.bm tr.nc td { background: var(--cds-chart-status-critical); color: var(--color-bg); }
+.bm ul.bm-rules { margin: 0; padding-left: 1.2em; display: grid; gap: var(--cds-gap-xs); max-width: 85ch; }
+[data-dash-source-state=empty] { color: transparent; }
+@media (max-width: 560px) { .bm .hide-sm { display: none; } }
+</style>
+
+<div class="bm">
+  <header id="entete">
+    <h1>Budget de Marin</h1>
+    <p class="bm-sub">Export bancaire du <span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=maj">—</span>. Titres-restaurant, mouvements internes, revenus exceptionnels et dépenses hors budget ne sont pas comptés.</p>
+  </header>
+
+  <nav class="bm-tabs" role="tablist" aria-label="Pages">
+    <button class="bm-tab" role="tab" type="button" data-tab="reste" aria-selected="true">Ce qu’il me reste</button>
+    <button class="bm-tab" role="tab" type="button" data-tab="pilotage" aria-selected="false">Pilotage</button>
+    <button class="bm-tab" role="tab" type="button" data-tab="donnees" aria-selected="false">Données</button>
+    <button class="bm-tab" role="tab" type="button" data-tab="regles" aria-selected="false">Règles</button>
+  </nav>
+
+  <section class="bm-page" id="reste" role="tabpanel">
+    <div class="bm-card" id="c-ctrl">
+      <h2>Contrôles de l’export</h2>
+      <ul class="bm-ctrl-list" data-draw="ctrl" data-source="mois_courant"></ul>
+    </div>
+
+    <div class="bm-sec" id="s-mc">
+      <h2>Mois en cours : <span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=mc_mois">—</span></h2>
+      <p class="bm-take">Revenus prévus : <b data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=mc_revenus">—</b>, soit le salaire versé fin octobre (<span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=mc_salaire">—</span>), la CAF (<span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=mc_caf">—</span>, <span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=mc_caf_etat">—</span>) et Action Logement (<span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=mc_al">—</span>, <span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=mc_al_etat">—</span>). Budget loisirs du mois : <b data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=mc_loisirs">—</b>.</p>
+      <p class="bm-note">Dépenses comptées jusqu’au <span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=mc_maj">—</span>, date du dernier export.</p>
+    </div>
+    <p class="bm-legend"><span><i style="background:var(--color-ok)"></i>plus d’un quart restant</span><span><i style="background:var(--color-warn)"></i>moins d’un quart</span><span><i style="background:var(--cds-chart-status-critical)"></i>dépassé</span><span><i style="width:2px;height:14px;border-radius:0;background:var(--color-fg);vertical-align:-3px"></i>prévu</span><span>Clique sur un poste pour voir ses opérations.</span></p>
+    <div class="bm-card bm-cat" id="c-mc-loisirs" data-draw="cat" data-source="mois_en_cours" data-bloc="Loisirs" data-per="ce mois-ci" data-tone="#7F77DD" data-ic="verre" data-note="Les montants prévus suivent les revenus du mois."></div>
+    <div class="bm-card bm-cat" id="c-mc-variables" data-draw="cat" data-source="mois_en_cours" data-bloc="Charges variables" data-per="ce mois-ci" data-tone="#378ADD" data-ic="panier" data-note="Montants prévus fixes."></div>
+
+    <div class="bm-sec" id="s-mt">
+      <h2>Mois terminé : <span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=mois">—</span></h2>
+      <p class="bm-take">Revenus du mois : <b data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=revenus">—</b>, soit le salaire versé fin septembre (<span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=salaire">—</span>), la CAF (<span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=caf">—</span>) et Action Logement (<span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=al">—</span>). Budget loisirs du mois : <b data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=loisirs_mois">—</b>.</p>
+    </div>
+    <div class="bm-card bm-cat" id="c-loisirs" data-draw="cat" data-source="mois_courant" data-bloc="Loisirs" data-per="en octobre" data-tone="#7F77DD" data-ic="verre" data-note="Les montants prévus suivent les revenus du mois."></div>
+
+    <div class="bm-card bm-cat" id="c-variables" data-draw="cat" data-source="mois_courant" data-bloc="Charges variables" data-per="en octobre" data-tone="#378ADD" data-ic="panier" data-note="Montants prévus fixes."></div>
+
+    <div class="bm-card bm-cat" id="c-enveloppes" data-draw="cat" data-source="mois_courant" data-bloc="Enveloppes" data-titre="Enveloppes annuelles" data-per="pour 2026" data-tone="#BA7517" data-ic="calendrier" data-note="Année civile 2026, remise à zéro en janvier 2027."></div>
+  </section>
+
+  <section class="bm-page" id="pilotage" role="tabpanel" hidden>
+    <div class="bm-card" id="c-postes">
+      <h2>Ce qu’il te reste à dépenser ce mois-ci</h2>
+      <p class="bm-note">Un reste négatif indique ce que tu as dépensé au-delà du prévu.</p>
+      <div class="bm-tbox"><table data-source="mois_courant" data-row-key="id">
+        <thead><tr><th data-field="poste">Poste</th><th data-field="bloc" class="hide-sm">Catégorie</th><th data-field="depense" class="num">Dépensé</th><th data-field="seuil" class="num">Prévu</th><th data-field="reste" class="num">Reste à dépenser</th></tr></thead>
+        <tbody data-draw="tpostes"></tbody>
+        <tfoot data-draw="fpostes" data-source="mois_courant"></tfoot>
+      </table></div>
+    </div>
+    <div class="bm-card" id="c-tenv">
+      <h2>Enveloppes annuelles</h2>
+      <p class="bm-note">Année civile 2026, de janvier à décembre. Remise à zéro en janvier 2027.</p>
+      <div class="bm-tbox"><table data-source="mois_courant" data-row-key="id">
+        <thead><tr><th data-field="poste">Enveloppe</th><th data-field="depense_mois" class="num">Dépensé ce mois</th><th data-field="depense" class="num">Depuis janvier</th><th data-field="seuil" class="num">Montant annuel</th><th data-field="reste" class="num">Reste à dépenser</th></tr></thead>
+        <tbody data-draw="tenv"></tbody>
+        <tfoot data-draw="fenv" data-source="mois_courant"></tfoot>
+      </table></div>
+    </div>
+    <div class="bm-card" id="c-fixes">
+      <h2>Charges fixes du mois</h2>
+      <p class="bm-note">Vérifie que chaque charge fixe est bien passée, au montant prévu.</p>
+      <div class="bm-tbox"><table data-source="mois_courant" data-row-key="id">
+        <thead><tr><th data-field="poste">Charge</th><th data-field="seuil" class="num">Prévu</th><th data-field="depense" class="num">Passé</th><th data-field="etat">État</th></tr></thead>
+        <tbody data-draw="tfix"></tbody>
+        <tfoot data-draw="ffix" data-source="mois_courant"></tfoot>
+      </table></div>
+    </div>
+  </section>
+
+  <section class="bm-page" id="donnees" role="tabpanel" hidden>
+    <div class="bm-card" id="c-ops">
+      <h2>Toutes les opérations</h2>
+      <p class="bm-note">Opérations du compte courant depuis novembre 2025 avec la catégorie et le poste attribués. Clique sur un en-tête de colonne pour trier. Une opération que les règles ne savent pas classer apparaît en tête, surlignée.</p>
+      <div class="bm-ctrl">
+        <input type="search" id="bm-q" placeholder="Chercher un libellé ou un poste" aria-label="Chercher dans les opérations">
+        <select data-draw="fmois" data-source="operations" aria-label="Mois"></select>
+        <select data-draw="fbloc" data-source="operations" aria-label="Catégorie"></select>
+      </div>
+      <div class="bm-filtre" data-draw="filtre" data-source="operations" hidden></div>
+      <div class="bm-tbox"><table data-source="operations" data-row-key="id">
+        <thead><tr data-draw="hops" data-source="operations"><th data-field="jour">Date</th><th data-field="libelle">Libellé</th><th data-field="bloc" class="hide-sm">Catégorie</th><th data-field="poste">Poste</th><th data-field="montant" class="num">Montant</th></tr></thead>
+        <tbody data-draw="tops"></tbody>
+        <tfoot data-draw="fops" data-source="operations"></tfoot>
+      </table></div>
+    </div>
+  </section>
+
+  <section class="bm-page" id="regles" role="tabpanel" hidden>
+    <div class="bm-card" id="c-calcul">
+      <h2>Règles de calcul</h2>
+      <ul class="bm-rules">
+        <li>Revenus du mois : salaire versé à la fin du mois précédent (employeur et caisse de congés payés), plus la CAF et Action Logement reçues dans le mois.</li>
+        <li>Somme à partager : revenus du mois, moins les charges fixes prévues, la part mensuelle des enveloppes et les montants prévus des charges variables.</li>
+        <li>Budget loisirs du mois : <b data-draw="pct" data-source="references" data-field="montant" data-where="id=part_loisirs">—</b> de la somme à partager, réparti entre les loisirs selon leur part. Le reste correspond à l’épargne.</li>
+        <li>Enveloppes annuelles : année civile, de janvier à décembre. Part mensuelle mise de côté : <b data-draw="eur" data-source="references" data-field="montant" data-where="id=env_mois">—</b>.</li>
+        <li>Couleur des jauges : vert s’il reste plus d’un quart du prévu, orange s’il en reste moins d’un quart, rouge si le prévu est dépassé.</li>
+        <li>Exclus : mouvements internes, titres-restaurant, revenus exceptionnels (prime, cadeaux reçus, virements de proches, CSE) et dépenses hors budget (voyages, anciens abonnements).</li>
+        <li>Les montants sont nets des remboursements (santé, restos, cadeaux communs, assurance).</li>
+      </ul>
+    </div>
+    <div class="bm-card" id="c-refs">
+      <h2>Montants de référence</h2>
+      <div class="bm-tbox"><table data-source="references" data-row-key="id">
+        <thead><tr><th data-field="type">Type</th><th data-field="poste">Poste</th><th data-field="montant" class="num">Montant</th><th data-field="note" class="hide-sm">Base</th></tr></thead>
+        <tbody data-draw="trefs"></tbody>
+      </table></div>
+    </div>
+    <div class="bm-card" id="c-regles">
+      <h2>Règles de classement</h2>
+      <div class="bm-tbox"><table data-source="regles" data-row-key="id">
+        <thead><tr><th data-field="regle">Mot-clé ou libellé</th><th data-field="bloc">Catégorie</th><th data-field="poste">Poste</th></tr></thead>
+        <tbody data-draw="tregles"></tbody>
+      </table></div>
+    </div>
+  </section>
+</div>
+</div>
+<script src="dash-shim.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

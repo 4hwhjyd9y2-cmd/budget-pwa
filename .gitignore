@@ -1,0 +1,6 @@
+# Données bancaires : jamais dans le dépôt
+*.json
+!manifest.json
+*.csv
+*.xlsx
+.claude/
