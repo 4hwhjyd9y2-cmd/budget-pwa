@@ -293,8 +293,8 @@
     let report = 0;
     for (let m = premierMois; m < mt; m = moisDecale(m, 1)) report = Math.min(0, r2(brutVirement(m).v + report));
     const vir = brutVirement(mt), virTotal = r2(vir.v + report);
-    // Virements d'épargne faits pour ce mois : à partir du 21 du mois terminé
-    const deja = r2(-somme(ops.filter((o) => o.poste === EPARGNE && o.date >= mt + '-21').map((o) => Number(o.montant))));
+    // Virements d'épargne faits pour ce mois : sorties à partir du 21 du mois terminé (un retrait depuis l'épargne ne compte pas)
+    const deja = r2(-somme(ops.filter((o) => o.poste === EPARGNE && o.montant < 0 && o.date >= mt + '-21').map((o) => Number(o.montant))));
     const resteVir = r2(Math.max(0, virTotal) - deja);
 
     // Mois en cours
@@ -344,7 +344,7 @@
     const refsAff = refs.map((r) => (r.id === 'part_loisirs' ? Object.assign({}, r, { montant: r2(part * 100) }) : r.id === 'env_mois' ? Object.assign({}, r, { montant: r2(envMois) }) : r));
     return {
       datasets: { mois_courant: moisCourant, mois_en_cours: moisEnCours, operations: ops, references: refsAff, regles: bundle.regles || [], synthese },
-      textes: { mois: moisNom(mt), annee: an, annee_suiv: String(Number(an) + 1) }
+      textes: { mois: moisNom(mt), mois_lib: moisLabel(mt), mois_mc: moisLabel(mc), annee: an, annee_suiv: String(Number(an) + 1) }
     };
   }
 

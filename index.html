@@ -206,8 +206,17 @@ body {
   </section>
 
   <section class="bm-page" id="pilotage" role="tabpanel" hidden>
+    <div class="bm-card" id="c-postes-mc">
+      <h2 class="tpl">Mois en cours : {mois_mc}</h2>
+      <p class="bm-note">Ce qu’il te reste à dépenser, avec les dépenses jusqu’au dernier export.</p>
+      <div class="bm-tbox"><table>
+        <thead><tr><th>Poste</th><th class="hide-sm">Catégorie</th><th class="num">Dépensé</th><th class="num">Prévu</th><th class="num">Reste à dépenser</th></tr></thead>
+        <tbody data-draw="tpostes_mc"></tbody>
+        <tfoot data-draw="fpostes_mc"></tfoot>
+      </table></div>
+    </div>
     <div class="bm-card" id="c-postes">
-      <h2>Ce qu’il te reste à dépenser ce mois-ci</h2>
+      <h2 class="tpl">Mois terminé : {mois_lib}</h2>
       <p class="bm-note">Un reste négatif indique ce que tu as dépensé au-delà du prévu.</p>
       <div class="bm-tbox"><table data-source="mois_courant" data-row-key="id">
         <thead><tr><th data-field="poste">Poste</th><th data-field="bloc" class="hide-sm">Catégorie</th><th data-field="depense" class="num">Dépensé</th><th data-field="seuil" class="num">Prévu</th><th data-field="reste" class="num">Reste à dépenser</th></tr></thead>
@@ -225,7 +234,7 @@ body {
       </table></div>
     </div>
     <div class="bm-card" id="c-fixes">
-      <h2>Charges fixes du mois</h2>
+      <h2 class="tpl">Charges fixes : {mois_lib}</h2>
       <p class="bm-note">Vérifie que chaque charge fixe est bien passée, au montant prévu.</p>
       <div class="bm-tbox"><table data-source="mois_courant" data-row-key="id">
         <thead><tr><th data-field="poste">Charge</th><th data-field="seuil" class="num">Prévu</th><th data-field="depense" class="num">Passé</th><th data-field="etat">État</th></tr></thead>

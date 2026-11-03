@@ -210,6 +210,23 @@
     if (mois <= '02' && bundle.refs_maj !== an && $('app-msg').hidden) msg('Nouvelle année : les enveloppes repartent à zéro. Mets à jour tes montants de référence (onglet Règles, « Recalculer sur les 12 derniers mois »).');
   };
 
+  // ---------- Pilotage : tableau du mois en cours ----------
+  const td = (tr, t, cls) => { const c = document.createElement('td'); if (cls) c.className = cls; c.textContent = t; tr.append(c); };
+  const lignesMc = () => window.dash.data('mois_en_cours').data;
+  window.dash.draw('tpostes_mc', (tb) => {
+    tb.replaceChildren(...lignesMc().map((r) => {
+      const tr = document.createElement('tr');
+      td(tr, r.poste); td(tr, r.bloc, 'hide-sm'); td(tr, eur(r.depense), 'num'); td(tr, eur(r.seuil), 'num'); td(tr, eur(r.reste), 'num' + (r.reste < 0 ? ' neg' : ''));
+      return tr;
+    }));
+  });
+  window.dash.draw('fpostes_mc', (tf) => {
+    const l = lignesMc(), t = (k) => Math.round(l.reduce((s, r) => s + Number(r[k]), 0) * 100) / 100;
+    const tr = document.createElement('tr'), re = t('reste');
+    td(tr, 'Total'); td(tr, '', 'hide-sm'); td(tr, eur(t('depense')), 'num'); td(tr, eur(t('seuil')), 'num'); td(tr, eur(re), 'num' + (re < 0 ? ' neg' : ''));
+    tf.replaceChildren(tr);
+  });
+
   // ---------- Règles « toujours ce marchand » ----------
   window.dash.draw('perso', (ul) => {
     const l = (bundle && bundle.regles_perso) || [];
