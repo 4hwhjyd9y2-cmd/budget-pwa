@@ -49,6 +49,15 @@ body {
 .app-empty p { margin: 0; color: var(--color-fg-muted); line-height: 1.45; }
 .app-msg { max-width: 1150px; margin: 8px auto 0; font-size: 13px; padding: 8px 12px; border-radius: 10px; background: var(--color-panel); border: 1px solid var(--color-border-line); }
 .app-msg.err { color: var(--color-bad); }
+.app-dlg { border: 1px solid var(--color-border-line); border-radius: 14px; background: var(--color-bg); color: var(--color-fg); padding: 16px; width: min(26rem, calc(100vw - 32px)); font-family: var(--font-anthropic-sans); }
+.app-dlg::backdrop { background: rgba(0,0,0,.45); }
+.app-dlg form { display: grid; gap: 12px; margin: 0; }
+.app-dlg h2 { font-size: 17px; margin: 0; font-weight: 600; }
+.app-dlg p { margin: 0; font-size: 13px; color: var(--color-fg-muted); overflow-wrap: anywhere; }
+.app-dlg select { font: inherit; font-size: 16px; padding: 8px; border: 1px solid var(--color-border-line); border-radius: 10px; background: var(--color-panel); color: var(--color-fg); width: 100%; }
+.app-dlg label { display: flex; gap: 8px; align-items: center; font-size: 14px; }
+.app-dlg .row { display: flex; gap: 8px; justify-content: flex-end; }
+[data-draw="tops"] tr { cursor: pointer; }
 </style>
 </head>
 <body>
@@ -58,10 +67,10 @@ body {
   <button class="app-btn primary" type="button" id="app-import">Importer</button>
 </div>
 <div class="app-msg" id="app-msg" hidden></div>
-<input type="file" id="app-file" accept="application/json,.json" hidden>
+<input type="file" id="app-file" accept=".csv,.CSV,.zip,.json,text/csv,application/zip,application/json" hidden>
 <div class="app-empty" id="app-empty" hidden>
   <h1>Budget de Marin</h1>
-  <p>Aucune donnée sur cet appareil. Importe le fichier <b>budget-donnees.json</b> (depuis Fichiers, iCloud Drive ou AirDrop). Il reste uniquement sur ce téléphone.</p>
+  <p>Aucune donnée sur cet appareil. La première fois, importe le fichier <b>budget-donnees.json</b> (montants de référence et historique). Ensuite, importe directement l’export Boursobank (.zip ou .csv). Tout reste sur ce téléphone.</p>
   <button class="app-btn primary" type="button" id="app-import-2">Importer mes données</button>
 </div>
 <div id="dash-root">
@@ -161,7 +170,7 @@ body {
 
     <div class="bm-sec" id="s-mc">
       <h2>Mois en cours : <span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=mc_mois">—</span></h2>
-      <p class="bm-take">Revenus prévus : <b data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=mc_revenus">—</b>, soit le salaire versé fin octobre (<span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=mc_salaire">—</span>), la CAF (<span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=mc_caf">—</span>, <span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=mc_caf_etat">—</span>) et Action Logement (<span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=mc_al">—</span>, <span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=mc_al_etat">—</span>). Budget loisirs du mois : <b data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=mc_loisirs">—</b>.</p>
+      <p class="bm-take">Revenus prévus : <b data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=mc_revenus">—</b>, soit le salaire versé fin <span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=mc_salaire_mois">—</span> (<span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=mc_salaire">—</span>), la CAF (<span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=mc_caf">—</span>, <span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=mc_caf_etat">—</span>) et Action Logement (<span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=mc_al">—</span>, <span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=mc_al_etat">—</span>). Budget loisirs du mois : <b data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=mc_loisirs">—</b>.</p>
       <p class="bm-note">Dépenses comptées jusqu’au <span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=mc_maj">—</span>, date du dernier export.</p>
     </div>
     <p class="bm-legend"><span><i style="background:var(--color-ok)"></i>plus d’un quart restant</span><span><i style="background:var(--color-warn)"></i>moins d’un quart</span><span><i style="background:var(--cds-chart-status-critical)"></i>dépassé</span><span><i style="width:2px;height:14px;border-radius:0;background:var(--color-fg);vertical-align:-3px"></i>prévu</span><span>Clique sur un poste pour voir ses opérations.</span></p>
@@ -170,13 +179,13 @@ body {
 
     <div class="bm-sec" id="s-mt">
       <h2>Mois terminé : <span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=mois">—</span></h2>
-      <p class="bm-take">Revenus du mois : <b data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=revenus">—</b>, soit le salaire versé fin septembre (<span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=salaire">—</span>), la CAF (<span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=caf">—</span>) et Action Logement (<span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=al">—</span>). Budget loisirs du mois : <b data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=loisirs_mois">—</b>.</p>
+      <p class="bm-take">Revenus du mois : <b data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=revenus">—</b>, soit le salaire versé fin <span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=salaire_mois">—</span> (<span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=salaire">—</span>), la CAF (<span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=caf">—</span>) et Action Logement (<span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=al">—</span>). Budget loisirs du mois : <b data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=loisirs_mois">—</b>.</p>
     </div>
-    <div class="bm-card bm-cat" id="c-loisirs" data-draw="cat" data-source="mois_courant" data-bloc="Loisirs" data-per="en octobre" data-tone="#7F77DD" data-ic="verre" data-note="Les montants prévus suivent les revenus du mois."></div>
+    <div class="bm-card bm-cat" id="c-loisirs" data-draw="cat" data-source="mois_courant" data-bloc="Loisirs" data-per="en {mois}" data-tone="#7F77DD" data-ic="verre" data-note="Les montants prévus suivent les revenus du mois."></div>
 
-    <div class="bm-card bm-cat" id="c-variables" data-draw="cat" data-source="mois_courant" data-bloc="Charges variables" data-per="en octobre" data-tone="#378ADD" data-ic="panier" data-note="Montants prévus fixes."></div>
+    <div class="bm-card bm-cat" id="c-variables" data-draw="cat" data-source="mois_courant" data-bloc="Charges variables" data-per="en {mois}" data-tone="#378ADD" data-ic="panier" data-note="Montants prévus fixes."></div>
 
-    <div class="bm-card bm-cat" id="c-enveloppes" data-draw="cat" data-source="mois_courant" data-bloc="Enveloppes" data-titre="Enveloppes annuelles" data-per="pour 2026" data-tone="#BA7517" data-ic="calendrier" data-note="Année civile 2026, remise à zéro en janvier 2027."></div>
+    <div class="bm-card bm-cat" id="c-enveloppes" data-draw="cat" data-source="mois_courant" data-bloc="Enveloppes" data-titre="Enveloppes annuelles" data-per="pour {annee}" data-tone="#BA7517" data-ic="calendrier" data-note="Année civile {annee}, remise à zéro en janvier {annee_suiv}."></div>
   </section>
 
   <section class="bm-page" id="pilotage" role="tabpanel" hidden>
@@ -191,7 +200,7 @@ body {
     </div>
     <div class="bm-card" id="c-tenv">
       <h2>Enveloppes annuelles</h2>
-      <p class="bm-note">Année civile 2026, de janvier à décembre. Remise à zéro en janvier 2027.</p>
+      <p class="bm-note tpl">Année civile {annee}, de janvier à décembre. Remise à zéro en janvier {annee_suiv}.</p>
       <div class="bm-tbox"><table data-source="mois_courant" data-row-key="id">
         <thead><tr><th data-field="poste">Enveloppe</th><th data-field="depense_mois" class="num">Dépensé ce mois</th><th data-field="depense" class="num">Depuis janvier</th><th data-field="seuil" class="num">Montant annuel</th><th data-field="reste" class="num">Reste à dépenser</th></tr></thead>
         <tbody data-draw="tenv"></tbody>
@@ -212,7 +221,7 @@ body {
   <section class="bm-page" id="donnees" role="tabpanel" hidden>
     <div class="bm-card" id="c-ops">
       <h2>Toutes les opérations</h2>
-      <p class="bm-note">Opérations du compte courant depuis novembre 2025 avec la catégorie et le poste attribués. Clique sur un en-tête de colonne pour trier. Une opération que les règles ne savent pas classer apparaît en tête, surlignée.</p>
+      <p class="bm-note tpl">Opérations du compte courant depuis {debut_ops} avec la catégorie et le poste attribués. Clique sur un en-tête de colonne pour trier. Une opération que les règles ne savent pas classer apparaît en tête, surlignée. Touche une opération pour changer son poste.</p>
       <div class="bm-ctrl">
         <input type="search" id="bm-q" placeholder="Chercher un libellé ou un poste" aria-label="Chercher dans les opérations">
         <select data-draw="fmois" data-source="operations" aria-label="Mois"></select>
@@ -257,6 +266,7 @@ body {
   </section>
 </div>
 </div>
+<script src="moteur.js"></script>
 <script src="dash-shim.js"></script>
 <script src="app.js"></script>
 </body>
