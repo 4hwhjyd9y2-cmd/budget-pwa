@@ -108,7 +108,8 @@
       const r = M.importer(bundle, texte, nomCsv);
       sauver(r.bundle);
       sessionStorage.setItem('budget-msg', r.stats.lues + ' opérations lues, ' + r.stats.nouvelles + ' nouvelle' + (r.stats.nouvelles > 1 ? 's' : '') +
-        (r.stats.aClasser ? ', dont ' + r.stats.aClasser + ' à classer (onglet Données, en tête et surlignées).' : ', toutes classées.'));
+        (r.stats.aClasser ? ', dont ' + r.stats.aClasser + ' à classer (onglet Données, en tête et surlignées).' : ', toutes classées.') +
+        (r.stats.migres ? ' ' + r.stats.migres + ' ancien' + (r.stats.migres > 1 ? 's virements reclassés' : ' virement reclassé') + ' en « Virement d’épargne ».' : ''));
       location.reload();
     } catch (err) {
       msg(err.message || String(err), true);

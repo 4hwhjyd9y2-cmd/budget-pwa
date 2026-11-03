@@ -13,7 +13,7 @@
   const POSTES_FIXES = {
     'Revenus': ['Salaire', 'CAF', 'Action Logement'],
     'Exceptionnel': ['Virements de proches', 'Cadeaux reçus'],
-    'Interne': ['Mouvements internes'],
+    'Interne': ['Mouvements internes', 'Virement d’épargne'],
     'Hors budget': ['Voyages', 'Anciens abonnements'],
     'Exclu': ['Non suivis'],
     'Non classé': ['Non classé']
@@ -97,6 +97,13 @@
     return null;
   }
 
+  // Virement sortant que la banque classe en « Epargne financière » : le virement d'épargne du mois.
+  // Passe avant les règles personnelles, qui rangent ces virements dans les mouvements internes.
+  const EPARGNE = 'Virement d’épargne';
+  function regleEpargne(o) {
+    return o.montant < 0 && /^VIR /.test(norm(o.libelle).toUpperCase()) && /^epargne financi/i.test(o.cat || '') ? { bloc: 'Interne', poste: EPARGNE } : null;
+  }
+
   // Règles génériques, valables pour n'importe quel compte
   function regleGenerique(o) {
     const L = norm(o.libelle).toUpperCase();
@@ -148,7 +155,7 @@
     const k = marchand(o.libelle);
     const perso = ctx.perso.find((p) => p.marchand === k);
     if (perso) return { bloc: perso.bloc, poste: perso.poste, src: 'règle perso' };
-    const f = reglePerso(o, ctx.regles) || regleGenerique(o); if (f) return Object.assign(f, { src: 'règle' });
+    const f = regleEpargne(o) || reglePerso(o, ctx.regles) || regleGenerique(o); if (f) return Object.assign(f, { src: 'règle' });
     // Virements de ou vers des personnes : toujours à vérifier à la main
     if (/^VIR /.test(k)) return { bloc: 'Non classé', poste: 'Non classé', src: 'auto' };
     const a = ctx.appris[k]; if (a) return { bloc: a.bloc, poste: a.poste, src: 'historique' };
@@ -167,11 +174,16 @@
     const fn = (nomFichier || '').match(/(\d\d)-(\d\d)-(\d{4})/);
     const dExport = fn ? fn[3] + '-' + fn[2] + '-' + fn[1] : brut.reduce((m, o) => (o.date > m ? o.date : m), '');
     const debut = moisDecale(dExport.slice(0, 7), -12);
-    const vus = new Set(); let nouvelles = 0, aClasser = 0;
+    const vus = new Set(); let nouvelles = 0, aClasser = 0, migres = 0;
     const ops = [];
     brut.forEach((o) => {
       const p = pool[cle(o)];
-      if (p && p.length) { const a = p.shift(); vus.add(a); if (a.mois >= debut) ops.push(a); return; }
+      if (p && p.length) {
+        let a = p.shift(); vus.add(a);
+        if (a.poste === 'Mouvements internes' && regleEpargne(o)) { a = Object.assign({}, a, { poste: EPARGNE, src: 'règle' }); migres++; }
+        if (a.mois >= debut) ops.push(a);
+        return;
+      }
       if (o.date.slice(0, 7) < debut) return;
       const c = classer(o, ctx);
       if (c.bloc === 'Exclu') return;
@@ -182,7 +194,7 @@
     anciens.forEach((o) => { if (!vus.has(o) && o.mois >= debut && o.date < brut.reduce((m, x) => (x.date < m ? x.date : m), '9999')) ops.push(o); });
     ops.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.id - b.id));
     const out = Object.assign({}, bundle, { version: 2, operations: ops, export: dExport, maj: new Date().toISOString() });
-    return { bundle: out, stats: { lues: brut.length, nouvelles, aClasser } };
+    return { bundle: out, stats: { lues: brut.length, nouvelles, aClasser, migres } };
   }
 
   // Reclassement manuel ; avec `toutes`, mémorise le marchand et reclasse ses opérations non classées
@@ -281,6 +293,9 @@
     let report = 0;
     for (let m = premierMois; m < mt; m = moisDecale(m, 1)) report = Math.min(0, r2(brutVirement(m).v + report));
     const vir = brutVirement(mt), virTotal = r2(vir.v + report);
+    // Virements d'épargne faits pour ce mois : à partir du 21 du mois terminé
+    const deja = r2(-somme(ops.filter((o) => o.poste === EPARGNE && o.date >= mt + '-21').map((o) => Number(o.montant))));
+    const resteVir = r2(Math.max(0, virTotal) - deja);
 
     // Mois en cours
     const revMc = revenusDe(mc, true);
@@ -320,6 +335,9 @@
       S('tr_env', 'Part mensuelle des enveloppes', r2(envMois), '€'),
       S('tr_report', 'Report du mois précédent', report, '€'),
       S('tr_virement', 'À virer', Math.max(0, virTotal), '€'),
+      S('tr_deja', 'Déjà viré', deja, '€'),
+      S('tr_reste', 'Reste à virer', Math.max(0, resteVir), '€'),
+      S('tr_etat', 'État du virement', virTotal <= 0 ? 'Rien à virer ce mois-ci.' : deja === 0 ? 'Pas encore fait.' : resteVir <= 0 ? 'Fait' + (resteVir < 0 ? ' (' + (-resteVir).toFixed(2).replace('.', ',') + ' € de plus que prévu).' : '.') : 'En partie fait.'),
       S('tr_note', 'Report', virTotal < 0 ? 'Rien à virer : ' + (-virTotal).toFixed(2).replace('.', ',') + ' € seront déduits du virement du mois prochain.' : 'Montant à virer sur ton compte d’épargne en début de mois.')
     ];
     // Les montants calculés de la page Règles suivent les montants de référence
