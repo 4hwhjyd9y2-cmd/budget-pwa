@@ -88,12 +88,55 @@
       if (d > p) al('b', '🔴', '<b>' + n + ' dépassés de ' + eur(d - p) + '</b>');
       else if (d / p > rythme + 0.15) al('w', '⚠️', '<b>' + n + ' : ' + Math.round(d / p * 100) + ' % dépensés</b>, le mois est à ' + Math.round(rythme * 100) + ' %');
     });
-    const k = v.caisse.valeur;
-    al(k < 0 ? 'b' : 'ok', '📦', '<b>Caisse des enveloppes ' + signe(k) + '</b>' + (k < 0 ? ' · à combler avec les bons mois' : ' · d’avance pour les grosses dépenses'));
-    if (v.epargne.reste > 0) al('w', '💸', '<b>' + eur2(v.epargne.reste) + ' ' + de(v.epargne.mois.split(' ')[0]) + ' à virer</b> sur l’épargne');
+    const k = v.caisse.valeur, e = v.epargne, mt = e.mois.split(' ')[0];
+    al(k < 0 ? 'b' : 'ok', '📦', '<b>Caisse des enveloppes ' + signe(k) + '</b>' + (k < 0 ? ' · sera retiré de l’épargne ' + de(v.mois_mc.split(' ')[0]) : ' · d’avance pour les grosses dépenses'));
+    if (e.manque > 0) al('b', '🔻', '<b>' + mt.charAt(0).toUpperCase() + mt.slice(1) + ' fini à −' + eur2(e.manque) + '</b>, pris sur ton coussin' + (e.laisse ? ' · laissé filer' : ' · reporté sur le mois suivant'), 'Voir', () => { $('d-mt').open = true; $('c-virement').scrollIntoView({ block: 'start' }); });
+    const cs = v.coussin.dernier;
+    if (cs && (v.coussin.sous_seuil || v.coussin.baisse)) al(v.coussin.sous_seuil ? 'b' : 'w', '🛟', '<b>Coussin du compte : ' + eur(cs.solde) + '</b> la veille du salaire (' + cs.jour.slice(0, 5) + ')' + (cs.ecart !== null && cs.ecart < 0 ? ', ' + eur(cs.ecart) + ' en un mois' : '') + (v.coussin.sous_seuil ? ', sous ton minimum de ' + eur(v.coussin.seuil) : ''), 'Voir', () => onglet('duree'));
+    if (e.reste > 0) al('w', '💸', '<b>' + eur2(v.epargne.reste) + ' ' + de(v.epargne.mois.split(' ')[0]) + ' à virer</b> sur l’épargne');
     else if (v.epargne.a_virer > 0) al('ok', '✅', 'Épargne ' + de(v.epargne.mois.split(' ')[0]) + ' virée');
     if (v.nc) al('w', '🏷️', '<b>' + v.nc + ' opération' + (v.nc > 1 ? 's' : '') + ' à classer</b>', 'Voir', () => voirOps({ bloc: 'Non classé' }));
     if (v.fixKo.length) al('w', '🧾', '<b>Charges fixes ' + de(v.epargne.mois.split(' ')[0]) + ' à vérifier</b> : ' + v.fixKo.join(', '), 'Voir', () => { $('d-mt').open = true; $('c-fixes').scrollIntoView({ block: 'start' }); });
+    c.replaceChildren(...out);
+  });
+
+  // ---------- Mois fini dans le négatif : reporter ou laisser filer ----------
+  dash.draw('v_vir_choix', (c) => {
+    const e = V().epargne;
+    if (!(e.manque > 0)) { c.replaceChildren(); return; }
+    const b = el('button', 'bm-btn', e.laisse ? 'Finalement, le reporter sur le mois suivant' : 'Laisser filer (accepter qu’il soit pris sur le coussin)');
+    b.type = 'button';
+    b.onclick = () => {
+      const bu = A.bundle(), l = Object.assign({}, bu.deficits_laisses || {});
+      if (e.laisse) delete l[e.cle]; else l[e.cle] = true;
+      A.maj(Object.assign({}, bu, { deficits_laisses: l }), e.laisse ? 'Le manque sera reporté sur le mois suivant.' : 'Manque laissé filer : rien n’est reporté.');
+    };
+    c.replaceChildren(b);
+  });
+
+  // ---------- Coussin : solde du compte courant la veille de chaque salaire ----------
+  dash.draw('v_coussin', (c) => {
+    const k = V().coussin, out = [el('h2', '', 'Coussin du compte courant')];
+    if (!k.liste.length) {
+      out.push(el('p', 'bm-note', 'Importe un export Boursobank récent : son solde après chaque opération permet de suivre le coussin.'));
+      c.replaceChildren(...out); return;
+    }
+    out.push(el('p', 'bm-note', 'Solde la veille de chaque salaire, c’est-à-dire ce qui reste quand le mois budgétaire se termine. S’il baisse, tu vis sur ton coussin.'));
+    const mx = Math.max(...k.liste.map((x) => x.solde), k.seuil, 1);
+    k.liste.slice().reverse().forEach((x) => {
+      const r = el('div', 'v-r'), mid = el('div');
+      mid.append(x.mois_lib, el('small', '', 'le ' + x.jour + (x.ecart === null ? '' : ' · ' + signe(x.ecart))));
+      const t = el('div', 'v-t'), i = el('i'); i.style.width = Math.max(0, Math.min(100, x.solde / mx * 100)) + '%';
+      i.style.background = x.solde < k.seuil ? 'var(--color-bad)' : TON.epargne;
+      const m = el('b'); m.style.left = Math.min(99, k.seuil / mx * 100) + '%'; t.append(i, m); mid.append(t);
+      r.append(ic('🛟', TON.epargne), mid, el('span', 'v-n' + (x.solde < k.seuil ? ' neg' : ''), eur(x.solde)));
+      out.push(r);
+    });
+    const f = el('div', 'v-r'), lab = el('label', '', 'Minimum souhaité '), inp = el('input');
+    inp.type = 'number'; inp.inputMode = 'numeric'; inp.value = k.seuil; inp.style.width = '90px'; inp.setAttribute('aria-label', 'Minimum souhaité pour le coussin');
+    inp.onchange = () => { const n = nombre(inp.value); if (n >= 0) A.maj(Object.assign({}, A.bundle(), { coussin_min: n }), 'Minimum du coussin enregistré.'); };
+    lab.append(inp, ' €'); f.append(lab); out.push(f);
+    out.push(el('p', 'bm-note', 'Le trait noir marque ton minimum. Ta vraie sécurité reste le Livret A : ce coussin sert à ne pas passer dans le rouge avant le salaire.'));
     c.replaceChildren(...out);
   });
 
