@@ -53,7 +53,7 @@
   };
   remplir();
 
-  // Import : export Boursobank (.zip ou .csv) ou sauvegarde (.json)
+  // Import : export bancaire (.zip ou .csv) ou sauvegarde (.json)
   const ouvrir = () => $('app-file').click();
   $('app-import').onclick = ouvrir;
   $('app-import-2').onclick = ouvrir;
