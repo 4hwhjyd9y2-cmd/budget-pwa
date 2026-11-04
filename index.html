@@ -232,6 +232,27 @@ details[open] > summary .v-chev { transform: rotate(90deg); }
 .app-dlg .v-rep { font-size: 14px; color: var(--color-fg); display: grid; gap: 6px; }
 .app-dlg .v-rep p { color: var(--color-fg); font-size: 14px; }
 @media (max-width: 560px) { .bm .hide-sm { display: none; } }
+
+/* ---------- iPhone ---------- */
+.bm-card > *, .v-col > *, .v-grid > *, details { min-width: 0; }
+.v-r small { display: block; margin: 1px 0 0; }
+.v-n small { display: inline; }
+.v-mt-in { display: grid; gap: 12px; padding: 0 12px 12px; }
+.v-ok-n { color: var(--color-ok); }
+.bm-tab-ic { display: none; }
+@media (max-width: 560px) {
+  .bm { gap: 14px; }
+  .bm-card { padding: 12px; }
+  .v-grid, .v-col { gap: 12px; }
+  .v-mt-in { padding: 0 8px 8px; }
+  /* Onglets en barre du bas, comme une appli */
+  .bm-tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; margin: 0;
+    border-top: 1px solid var(--color-border-line); border-bottom: 0; background: var(--color-panel); padding: 4px 4px calc(4px + env(safe-area-inset-bottom)); }
+  .bm-tab { display: grid; justify-items: center; gap: 3px; font-size: 12px; padding: 6px 2px; border-bottom: 0; white-space: nowrap; }
+  .bm-tab[aria-selected="true"] { color: var(--color-fg); font-weight: 600; }
+  .bm-tab-ic { display: grid; }
+  body { padding-bottom: calc(80px + env(safe-area-inset-bottom)); }
+}
 /* ---------- Finitions : toucher, mouvement, lisibilité ---------- */
 :root { --ease-out: cubic-bezier(0.23, 1, 0.32, 1); }
 html { -webkit-tap-highlight-color: transparent; }
@@ -301,7 +322,6 @@ html { -webkit-tap-highlight-color: transparent; }
 .v-calc[open] > summary { margin-bottom: 6px; }
 .v-calc .bm-note + .bm-note { margin-top: 6px; }
 
-@media (max-width: 560px) { .bm-tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; } .bm-tab { white-space: nowrap; padding: var(--cds-pad-sm) 7px; font-size: 14px; } }
 </style>
 
 <div class="bm">
@@ -310,10 +330,10 @@ html { -webkit-tap-highlight-color: transparent; }
   </header>
 
   <nav class="bm-tabs" role="tablist" aria-label="Pages">
-    <button class="bm-tab" role="tab" type="button" data-tab="reste" aria-selected="true">Ce mois-ci</button>
-    <button class="bm-tab" role="tab" type="button" data-tab="duree" aria-selected="false">Dans la durée</button>
-    <button class="bm-tab" role="tab" type="button" data-tab="donnees" aria-selected="false">Données</button>
-    <button class="bm-tab" role="tab" type="button" data-tab="regles" aria-selected="false">Règles</button>
+    <button class="bm-tab" role="tab" type="button" data-tab="reste" aria-selected="true"><span class="bm-tab-ic" data-icone="calendrier" aria-hidden="true"></span>Ce mois-ci</button>
+    <button class="bm-tab" role="tab" type="button" data-tab="duree" aria-selected="false"><span class="bm-tab-ic" data-icone="hausse" aria-hidden="true"></span>Dans la durée</button>
+    <button class="bm-tab" role="tab" type="button" data-tab="donnees" aria-selected="false"><span class="bm-tab-ic" data-icone="liste" aria-hidden="true"></span>Données</button>
+    <button class="bm-tab" role="tab" type="button" data-tab="regles" aria-selected="false"><span class="bm-tab-ic" data-icone="reglages" aria-hidden="true"></span>Règles</button>
   </nav>
 
   <section class="bm-page" id="reste" role="tabpanel">
@@ -332,34 +352,10 @@ html { -webkit-tap-highlight-color: transparent; }
 
     <details class="v-mt" id="d-mt">
       <summary><span><b class="tpl">Mois terminé : {mois_lib}</b><small data-draw="v_mt_resume"></small></span><span class="v-chev">›</span></summary>
-      <div class="bm-page">
-        <div class="bm-card" id="c-ctrl">
-          <h2>Contrôles de l’export</h2>
-          <ul class="bm-ctrl-list" data-draw="ctrl" data-source="mois_courant"></ul>
-        </div>
-        <p class="bm-take">Revenus du mois : <b data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=revenus">—</b>, soit le salaire versé fin <span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=salaire_mois">—</span> (<span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=salaire">—</span>), la CAF (<span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=caf">—</span>) et Action Logement (<span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=al">—</span>). Budget loisirs du mois : <b data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=loisirs_mois">—</b>.</p>
-        <div class="bm-card" id="c-virement">
-          <h2>Épargne de <span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=tr_mois">—</span></h2>
-          <p class="bm-take">À virer sur l’épargne : <b class="bm-big"><span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=tr_virement">—</span></b></p>
-          <p class="bm-take">Déjà viré : <b><span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=tr_deja">—</span></b> · Reste à virer : <b><span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=tr_reste">—</span></b>. <span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=tr_etat">—</span></p>
-          <p class="bm-note"><span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=tr_note">—</span></p>
-          <div data-draw="v_vir_choix"></div>
-          <details class="v-calc"><summary>Détail du calcul</summary>
-          <p class="bm-note">Déjà viré = envoyé vers l’épargne <span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=tr_envois">—</span> − retiré de l’épargne <span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=tr_retraits">—</span>. Les envois faits du 1er au 10 du mois suivant comptent pour ce mois-ci.</p>
-          <p class="bm-note">Calcul : revenus <span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=tr_revenus">—</span> − charges fixes passées <span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=tr_fixes">—</span> − loisirs et charges variables dépensés <span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=tr_depenses">—</span> − part des enveloppes <span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=tr_env">—</span> − dépassement de la caisse des enveloppes <span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=tr_trou_env">—</span> + report du mois précédent <span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=tr_report">—</span>.</p>
-          </details>
-        </div>
-        <div class="bm-card bm-cat" id="c-loisirs" data-draw="cat" data-source="mois_courant" data-bloc="Loisirs" data-per="en {mois}" data-tone="#7F77DD" data-ic="verre" data-note="Les montants prévus suivent les revenus du mois."></div>
-        <div class="bm-card bm-cat" id="c-variables" data-draw="cat" data-source="mois_courant" data-bloc="Charges variables" data-per="en {mois}" data-tone="#378ADD" data-ic="panier" data-note="Montants prévus fixes."></div>
-        <div class="bm-card" id="c-fixes">
-          <h2 class="tpl">Charges fixes : {mois_lib}</h2>
-          <p class="bm-note">Vérifie que chaque charge fixe est bien passée, au montant prévu.</p>
-          <div class="bm-tbox"><table data-source="mois_courant" data-row-key="id">
-            <thead><tr><th data-field="poste">Charge</th><th data-field="seuil" class="num">Prévu</th><th data-field="depense" class="num">Passé</th><th data-field="etat">État</th></tr></thead>
-            <tbody data-draw="tfix"></tbody>
-            <tfoot data-draw="ffix" data-source="mois_courant"></tfoot>
-          </table></div>
-        </div>
+      <div class="v-mt-in">
+        <div class="bm-card" id="c-virement" data-draw="v_mt_epargne"></div>
+        <div class="bm-card" data-draw="v_mt_plafonds"></div>
+        <div class="bm-card" id="c-fixes" data-draw="v_mt_fixes"></div>
       </div>
     </details>
   </section>

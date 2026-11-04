@@ -47,10 +47,12 @@
     etincelle: '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M18 6l-2.5 2.5M8.5 15.5 6 18"/>',
     calcul: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 7h8M8 12h1M12 12h1M16 12h0M8 16h1M12 16h1"/>',
     disque: '<path d="M5 3h11l3 3v15H5Z"/><path d="M8 3v5h7V3M8 21v-7h8v7"/>',
+    calendrier: '<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/>',
+    reglages: '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
     point: '<circle cx="12" cy="12" r="3"/>'
   };
   const ICONES = [[/resto|bar|sortie/i, 'resto'], [/v[eê]tement/i, 'vetement'], [/tabac/i, 'tabac'], [/soin|coiff/i, 'ciseaux'], [/carbur|p[ée]age/i, 'carburant'], [/course/i, 'panier'],
-    [/maison|quotidien/i, 'maison'], [/cadeau/i, 'cadeau'], [/entretien|voiture|moto/i, 'cle'], [/achat/i, 'sac'], [/sant/i, 'sante'], [/loyer|logement/i, 'maison'], [/pr[êe]t/i, 'diplome'],
+    [/maison|quotidien/i, 'maison'], [/cadeau/i, 'cadeau'], [/assurance/i, 'bouclier'], [/entretien|voiture|moto/i, 'cle'], [/achat/i, 'sac'], [/sant/i, 'sante'], [/loyer|logement/i, 'maison'], [/pr[êe]t/i, 'diplome'],
     [/assurance/i, 'bouclier'], [/sport|salle/i, 'haltere'], [/t[ée]l[ée]phone/i, 'telephone'], [/salaire|caf\b/i, 'billet']];
   const icone = (p) => { const x = ICONES.find(([re]) => re.test(p)); return x ? x[1] : 'point'; };
   const el = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt !== undefined) e.textContent = txt; return e; };
@@ -68,7 +70,7 @@
   // Aller aux opérations d'un poste (onglet Données)
   const voirOps = (r) => {
     const st = window.bmSt, v = V();
-    Object.assign(st, { poste: r.poste || '', bloc: r.bloc || '', tri: '', sens: 1, mois: r.bloc === 'Enveloppes' || r.bloc === 'Non classé' ? '' : v.mc, depuis: r.bloc === 'Enveloppes' ? v.mc.slice(0, 4) + '-01' : '' });
+    Object.assign(st, { poste: r.poste || '', bloc: r.bloc || '', tri: '', sens: 1, mois: r.bloc === 'Enveloppes' || r.bloc === 'Non classé' ? '' : r.mois || v.mc, depuis: r.bloc === 'Enveloppes' ? v.mc.slice(0, 4) + '-01' : '' });
     const q = $('bm-q'); if (q) q.value = '';
     ['hops', 'fmois', 'fbloc', 'filtre', 'tops', 'fops'].forEach((n) => dash.draw(n));
     document.querySelector('.bm-tab[data-tab="donnees"]').click();
@@ -148,19 +150,6 @@
     c.replaceChildren(...out);
   });
 
-  // ---------- Mois fini dans le négatif : reporter ou laisser filer ----------
-  dash.draw('v_vir_choix', (c) => {
-    const e = V().epargne;
-    if (!(e.manque > 0)) { c.replaceChildren(); return; }
-    const b = el('button', 'bm-btn', e.laisse ? 'Finalement, le reporter sur le mois suivant' : 'Laisser filer (accepter qu’il soit pris sur le coussin)');
-    b.type = 'button';
-    b.onclick = () => {
-      const bu = A.bundle(), l = Object.assign({}, bu.deficits_laisses || {});
-      if (e.laisse) delete l[e.cle]; else l[e.cle] = true;
-      A.maj(Object.assign({}, bu, { deficits_laisses: l }), e.laisse ? 'Le manque sera reporté sur le mois suivant.' : 'Manque laissé filer : rien n’est reporté.');
-    };
-    c.replaceChildren(b);
-  });
 
   // ---------- Coussin : solde du compte courant la veille de chaque salaire ----------
   dash.draw('v_coussin', (c) => {
@@ -189,14 +178,15 @@
   });
 
   // ---------- Plafonds par poste ----------
-  const ligneJauge = (r, rythme, ton) => {
+  const ligneJauge = (r, rythme, ton, sansRepere) => {
     const d = Number(r.depense), s = Number(r.seuil), re = Number(r.reste), p = s > 0 ? d / s : d > 0 ? 2 : 0;
     const row = el('div', 'v-r clic'); row.tabIndex = 0; row.setAttribute('role', 'button'); row.title = 'Voir les opérations : ' + r.poste;
     row.onclick = () => voirOps(r); row.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); voirOps(r); } };
-    const mid = el('div'), nom = el('span', 'v-nom', r.poste); mid.append(nom, el('small', re < 0 ? 'neg' : '', re < 0 ? 'dépassé de ' + eur(-re) : 'reste ' + eur(re)));
+    const mid = el('div'), nom = el('span', 'v-nom', r.poste);
     const t = el('div', 'v-t'), i = el('i'); i.style.width = Math.min(100, p * 100) + '%';
     i.style.background = re < 0 ? 'var(--color-bad)' : p > rythme + 0.15 ? 'var(--color-warn)' : ton;
-    const m = el('b'); m.style.left = Math.min(99, rythme * 100) + '%'; t.append(i, m); mid.append(t);
+    t.append(i); if (!sansRepere) { const m = el('b'); m.style.left = Math.min(99, rythme * 100) + '%'; t.append(m); }
+    mid.append(nom, t, el('small', re < 0 ? 'neg' : '', re < 0 ? 'dépassé de ' + eur(-re) : 'reste ' + eur(re)));
     const n = el('span', 'v-n' + (re < 0 ? ' neg' : ''), eur(d)); n.append(el('small', '', ' / ' + eur(s)));
     row.append(ic(icone(r.poste), ton), mid, n);
     return row;
@@ -217,6 +207,56 @@
     out.push(h2, ...v.enveloppes.map((r) => ligneJauge(r, an, TON.Enveloppes)));
     out.push(el('p', 'bm-note', 'Le trait noir montre où tu devrais en être aujourd’hui. Touche un poste pour voir ses opérations.'));
     c.replaceChildren(...out);
+  });
+
+  // ---------- Mois terminé : mêmes lignes que « Mes plafonds » ----------
+  const syn = (id) => { const r = (dash.data('synthese').data || []).find((x) => x.id === id); return r ? r.valeur : 0; };
+  const ligne = (nom, ton, titre, sous, val, cls) => {
+    const r = el('div', 'v-r'), mid = el('div'); mid.append(titre); if (sous) mid.append(el('small', '', sous));
+    r.append(ic(nom, ton), mid, el('span', 'v-n' + (cls ? ' ' + cls : ''), val)); return r;
+  };
+  const entete = (titre, pill, cls) => { const h = el('div', 'v-head'); h.append(el('h2', '', titre), el('span', 'v-pill' + (cls ? ' ' + cls : ''), pill)); return h; };
+  dash.draw('v_mt_epargne', (c) => {
+    const e = V().epargne, mt = e.mois.split(' ')[0];
+    const out = [entete('Épargne ' + de(mt), e.manque > 0 ? '−' + eur(e.manque) : e.reste > 0 ? eur(e.reste) + ' à virer' : e.a_virer > 0 ? 'virée' : 'rien à virer', e.manque > 0 ? 'b' : e.reste > 0 ? 'w' : '')];
+    out.push(ligne('billet', TON.epargne, 'Revenus', 'salaire ' + eur(syn('salaire')) + ' · CAF ' + eur(syn('caf')) + ' · Action Logement ' + eur(syn('al')), eur2(syn('revenus'))));
+    out.push(ligne('pieces', TON.epargne, 'À virer sur l’épargne', 'budget loisirs du mois : ' + eur(syn('loisirs_mois')), eur2(e.a_virer)));
+    out.push(ligne('envoi', TON.tr, 'Déjà viré', 'envoyé ' + eur(syn('tr_envois')) + ' − retiré ' + eur(syn('tr_retraits')), eur2(e.deja), e.deja < 0 ? 'neg' : ''));
+    out.push(ligne(e.reste > 0 ? 'alerte' : 'ok', e.reste > 0 ? TON.w : TON.ok, 'Reste à virer', null, eur2(e.reste)));
+    out.push(el('p', 'bm-note', String(syn('tr_etat')) + ' ' + String(syn('tr_note'))));
+    if (e.manque > 0) {
+      const b = el('button', 'bm-btn', e.laisse ? 'Finalement, le reporter sur le mois suivant' : 'Laisser filer (accepter qu’il soit pris sur le coussin)'); b.type = 'button';
+      b.onclick = () => {
+        const bu = A.bundle(), l = Object.assign({}, bu.deficits_laisses || {});
+        if (e.laisse) delete l[e.cle]; else l[e.cle] = true;
+        A.maj(Object.assign({}, bu, { deficits_laisses: l }), e.laisse ? 'Le manque sera reporté sur le mois suivant.' : 'Manque laissé filer : rien n’est reporté.');
+      };
+      out.push(b);
+    }
+    const d = el('details', 'v-calc'); d.append(el('summary', '', 'Détail du calcul'),
+      el('p', 'bm-note', 'Revenus ' + eur2(syn('tr_revenus')) + ' − charges fixes passées ' + eur2(syn('tr_fixes')) + ' − loisirs et charges variables dépensés ' + eur2(syn('tr_depenses')) +
+        ' − part des enveloppes ' + eur2(syn('tr_env')) + ' − dépassement de la caisse ' + eur2(syn('tr_trou_env')) + ' + report du mois précédent ' + eur2(syn('tr_report')) + '.'),
+      el('p', 'bm-note', 'Déjà viré = envoyé vers l’épargne moins retiré de l’épargne. Les envois faits du 1er au 10 du mois suivant comptent pour ce mois-ci.'));
+    out.push(d);
+    c.replaceChildren(...out);
+  });
+  dash.draw('v_mt_plafonds', (c) => {
+    const e = V().epargne, mt = e.mois.split(' ')[0];
+    const rows = (dash.data('mois_courant').data || []).filter((r) => r.bloc === 'Loisirs' || r.bloc === 'Charges variables');
+    const reste = rows.reduce((s, r) => s + Number(r.seuil) - Number(r.depense), 0);
+    c.replaceChildren(entete('Plafonds ' + de(mt), reste < 0 ? 'dépassé de ' + eur(-reste) : 'reste ' + eur(reste), reste < 0 ? 'b' : ''),
+      ...rows.map((r) => ligneJauge(Object.assign({}, r, { mois: e.cle }), 1, TON[r.bloc], true)),
+      el('p', 'bm-note', 'Touche un poste pour voir ses opérations du mois.'));
+  });
+  dash.draw('v_mt_fixes', (c) => {
+    const e = V().epargne, mt = e.mois.split(' ')[0];
+    const rows = (dash.data('mois_courant').data || []).filter((r) => r.bloc === 'Charges fixes'), ko = rows.filter((r) => !r.ok).length;
+    c.replaceChildren(entete('Charges fixes ' + de(mt), ko ? ko + ' à vérifier' : 'conformes', ko ? 'w' : ''), ...rows.map((r) => {
+      const row = el('button', 'v-r clic v-r-btn'); row.type = 'button'; row.onclick = () => voirOps({ poste: r.poste, bloc: 'Charges fixes', mois: e.cle });
+      const mid = el('div'); mid.append(r.poste, el('small', r.ok ? '' : 'neg', r.etat));
+      const n = el('span', 'v-n', eur2(Number(r.depense))); if (r.seuil !== null && r.seuil !== undefined && Math.abs(Number(r.seuil) - Number(r.depense)) >= 0.01) n.append(el('small', '', ' / ' + eur2(Number(r.seuil))));
+      row.append(ic(r.ok ? icone(r.poste) : 'alerte', r.ok ? TON.fixes : TON.w), mid, n); return row;
+    }));
   });
 
   // ---------- À venir ----------
