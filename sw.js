@@ -1,5 +1,5 @@
 // Cache de l'appli pour un usage hors ligne. Changer VERSION à chaque mise à jour des fichiers.
-const VERSION = 'budget-v10';
+const VERSION = 'budget-v11';
 const FICHIERS = ['./', 'index.html', 'moteur.js', 'dash-shim.js', 'app.js', 'vues.js', 'manifest.json', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png'];
 
 self.addEventListener('install', (e) => {

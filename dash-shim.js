@@ -21,9 +21,13 @@
   try { bundle = versV2(JSON.parse(localStorage.getItem(KEY) || 'null')); } catch (e) { bundle = null; }
 
   // Message en haut de page ; `annuler` ajoute un bouton pour revenir en arrière
+  // Le message disparaît seul après quelques secondes (plus longtemps s'il propose d'annuler)
+  let minuterie = null;
   const msg = (t, err, annuler) => {
     const m = $('app-msg'); m.replaceChildren(document.createTextNode(t || '')); m.className = 'app-msg' + (err ? ' err' : ''); m.hidden = !t;
-    if (t && annuler) { const b = document.createElement('button'); b.type = 'button'; b.className = 'app-btn'; b.textContent = 'Annuler'; b.onclick = annuler; m.append(b); }
+    if (t && annuler) { const b = document.createElement('button'); b.type = 'button'; b.textContent = 'Annuler'; b.onclick = () => { annuler(); }; m.append(b); }
+    clearTimeout(minuterie);
+    if (t) minuterie = setTimeout(() => { m.hidden = true; }, annuler ? 8000 : err ? 9000 : 5000);
   };
   const ecrire = (b) => { localStorage.setItem(KEY, JSON.stringify(b)); };
   // Toute modification des données est datée, pour rappeler de sauvegarder
@@ -96,7 +100,7 @@
   const dechiffrer = async (o, mdp) => new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: deb64(o.iv) }, await cleDe(mdp, deb64(o.sel), Number(o.iterations) || ITERATIONS), deb64(o.donnees)));
 
   const telecharger = (file) => { const a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = file.name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000); };
-  const marque = () => { bundle.sauvegarde_le = aujourdhui(); ecrire(bundle); rappel(); if (window.dash) window.dash.draw('v_sauve'); };
+  const marque = () => { bundle.sauvegarde_le = aujourdhui(); ecrire(bundle); rappel(); if (window.dash) window.dash.draw('v_reglages'); };
   // Le partage doit partir directement du geste (toucher) : le fichier protégé est donc préparé avant
   const envoyer = (file) => {
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
@@ -170,9 +174,25 @@
   // `html` ne contient que du texte fixe de l'appli, jamais de données importées.
   const GARDER = {};
   const erreur = (d, t) => { const p = d.querySelector('.app-err'); p.textContent = t || ''; p.hidden = !t; };
-  const ouvrirDlg = (d) => { erreur(d, ''); d.showModal(); };
+  const ouvrirDlg = (d) => { erreur(d, ''); d.style.transform = ''; d.showModal(); };
+  // Feuille : on la ferme en la tirant vers le bas par sa poignée ; un geste rapide suffit
+  const glisserPourFermer = (d) => {
+    const z = d.querySelector('.zone-poignee'); let y0 = 0, dy = 0, t0 = 0, actif = false;
+    z.addEventListener('pointerdown', (e) => { actif = true; y0 = e.clientY; dy = 0; t0 = performance.now(); z.setPointerCapture(e.pointerId); d.style.transition = 'none'; });
+    z.addEventListener('pointermove', (e) => {
+      if (!actif) return; dy = e.clientY - y0;
+      d.style.transform = 'translateY(' + (dy > 0 ? dy : -Math.sqrt(-dy) * 3) + 'px)';
+    });
+    const fin = () => {
+      if (!actif) return; actif = false; d.style.transition = '';
+      const v = dy / Math.max(1, performance.now() - t0);
+      if (dy > 120 || v > 0.5) { d.style.transform = ''; d.close(); } else d.style.transform = '';
+    };
+    z.addEventListener('pointerup', fin); z.addEventListener('pointercancel', fin);
+  };
   const dialogue = (html, ok) => {
-    const d = document.createElement('dialog'); d.className = 'app-dlg'; d.innerHTML = '<form method="dialog">' + html + '</form>'; document.body.append(d);
+    const d = document.createElement('dialog'); d.className = 'app-dlg'; d.innerHTML = '<div class="zone-poignee"><div class="poignee"></div></div><form method="dialog">' + html + '</form>'; document.body.append(d);
+    glisserPourFermer(d);
     const f = d.querySelector('form'), p = document.createElement('p'); p.className = 'app-err'; p.setAttribute('role', 'alert'); p.hidden = true;
     f.insertBefore(p, f.lastElementChild);
     f.addEventListener('submit', (e) => {
@@ -227,8 +247,8 @@
   });
   let opId = null;
   document.addEventListener('click', (e) => {
-    const tr = e.target.closest('[data-draw="tops"] tr'); if (!tr || !bundle) return;
-    const o = bundle.operations.find((x) => String(x.id) === tr.dataset.key); if (!o) return;
+    const tr = e.target.closest('[data-draw="tops"] tr, [data-op]'); if (!tr || !bundle) return;
+    const o = bundle.operations.find((x) => String(x.id) === (tr.dataset.op || tr.dataset.key)); if (!o) return;
     opId = o.id;
     $('dlg-op').textContent = o.jour + ' · ' + o.libelle + ' · ' + String(o.montant).replace('.', ',') + ' €';
     const sel = $('dlg-poste'); sel.replaceChildren();
@@ -316,7 +336,6 @@
   };
 
   if (bundle) {
-    $('app-bar').hidden = false;
     if (bundle.export) $('app-maj').textContent = 'Export du ' + bundle.export.slice(8, 10) + '/' + bundle.export.slice(5, 7) + '/' + bundle.export.slice(0, 4);
     rappel(); rappelAnnuel();
   } else {
