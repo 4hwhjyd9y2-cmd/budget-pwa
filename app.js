@@ -46,33 +46,6 @@
     const c = document.querySelector('#c-ops'); if (c) c.scrollIntoView({ block: 'start' });
   };
 
-  // Jauges en demi-cercle
-  const color = (p) => (p < 0 ? 'var(--cds-chart-status-critical)' : p < 25 ? 'var(--color-warn)' : 'var(--color-ok)');
-  dash.draw('jauge', (el) => {
-    const r = rowsOf('mois_courant').find((x) => x.id === el.dataset.id);
-    el.replaceChildren();
-    if (!r) { el.textContent = '—'; return; }
-    if (r.bloc !== 'Global') {
-      el.classList.add('bm-click'); el.tabIndex = 0; el.setAttribute('role', 'button');
-      el.title = 'Voir les opérations : ' + r.poste;
-      const go = () => openPoste(r);
-      el.onclick = go; el.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } };
-    }
-    const W = 200, H = 118, R = 84, cx = 100, cy = 100, th = 16;
-    const pct = num(r.pct_reste), f = Math.max(0, Math.min(100, pct)) / 100;
-    const arc = d3.arc().innerRadius(R - th).outerRadius(R).cornerRadius(3);
-    const a0 = -Math.PI / 2;
-    const svg = d3.select(el).append('svg').attr('viewBox', `0 0 ${W} ${H}`).attr('width', '100%').attr('role', 'img')
-      .attr('aria-label', r.poste + ' : ' + eur(num(r.reste)) + ' restants');
-    const g = svg.append('g').attr('transform', `translate(${cx},${cy})`);
-    g.append('path').attr('d', arc({ startAngle: a0, endAngle: Math.PI / 2 })).attr('fill', 'var(--cds-chart-grid)');
-    if (f > 0) g.append('path').attr('d', arc({ startAngle: a0, endAngle: a0 + Math.PI * f })).attr('fill', color(pct));
-    g.append('text').attr('y', -16).attr('text-anchor', 'middle').attr('font-size', 26).attr('font-family', 'var(--font-anthropic-serif)')
-      .attr('fill', pct < 0 ? 'var(--color-bad)' : 'var(--color-fg)').text(eur(num(r.reste)));
-    g.append('text').attr('y', 4).attr('text-anchor', 'middle').attr('font-size', 11).attr('fill', 'var(--color-fg-muted)')
-      .text(pct < 0 ? 'au-delà du prévu' : 'restant, soit ' + Math.round(pct) + ' %');
-  });
-
   const td = (tr, t, cls) => { const c = document.createElement('td'); if (cls) c.className = cls; c.textContent = t; tr.append(c); return c; };
 
   dash.draw('tpostes', (tb) => {

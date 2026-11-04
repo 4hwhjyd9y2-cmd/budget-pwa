@@ -2,6 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Budget</title>
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -231,13 +232,81 @@ details[open] > summary .v-chev { transform: rotate(90deg); }
 .app-dlg .v-rep { font-size: 14px; color: var(--color-fg); display: grid; gap: 6px; }
 .app-dlg .v-rep p { color: var(--color-fg); font-size: 14px; }
 @media (max-width: 560px) { .bm .hide-sm { display: none; } }
+/* ---------- Finitions : toucher, mouvement, lisibilité ---------- */
+:root { --ease-out: cubic-bezier(0.23, 1, 0.32, 1); }
+html { -webkit-tap-highlight-color: transparent; }
+#entete h1 { font-size: 22px; margin: 0; }
+.app-save { padding: 6px 10px; }
+.app-save .app-btn { padding: 4px 10px; }
+.app-msg { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
+.app-err { color: var(--color-bad) !important; font-size: 13px; }
+.app-btn.danger { background: var(--color-bad); border-color: var(--color-bad); color: #fff; }
+.app-dlg input[type="password"] { font: inherit; font-size: 16px; padding: 8px; border: 1px solid var(--color-border-line); border-radius: 10px; background: var(--color-panel); color: var(--color-fg); width: 100%; box-sizing: border-box; }
+/* Retour au toucher : les boutons s'enfoncent, les lignes s'éclairent */
+.app-btn, .bm-btn, .bm-tab, .v-chips button, .v-tuile { transition: transform 120ms var(--ease-out), background-color 150ms ease; }
+.app-btn:active, .bm-btn:active, .bm-tab:active, .v-chips button:active, .v-tuile:active { transform: scale(0.97); }
+.v-r.clic, .v-ios summary, .v-row, .v-intacts > summary { transition: background-color 150ms ease; }
+.v-r.clic:active, .v-ios summary:active, button.v-row:active, .v-intacts > summary:active { background: color-mix(in srgb, var(--color-fg) 7%, transparent); }
+.bm-click:hover, .bm-row:hover { background: inherit; }
+@media (hover: hover) and (pointer: fine) {
+  .bm-click:hover { background: var(--color-panel); }
+  .bm-row:hover { background: var(--color-bg); }
+  .v-r.clic:hover, .v-ios summary:hover, button.v-row:hover { background: color-mix(in srgb, var(--color-fg) 4%, transparent); }
+}
+.v-chev { transition: transform 150ms var(--ease-out); }
+/* Fenêtres : apparition courte, sortie plus rapide */
+.app-dlg { transition: opacity 200ms var(--ease-out), transform 200ms var(--ease-out), overlay 200ms allow-discrete, display 200ms allow-discrete; }
+.app-dlg:not([open]) { opacity: 0; transform: scale(0.98); transition-duration: 120ms; }
+@starting-style { .app-dlg[open] { opacity: 0; transform: scale(0.96); } }
+.app-dlg::backdrop { transition: opacity 200ms ease, overlay 200ms allow-discrete, display 200ms allow-discrete; }
+@starting-style { .app-dlg[open]::backdrop { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .app-btn, .bm-btn, .bm-tab, .v-chips button, .v-tuile, .v-chev, .app-dlg { transition-property: opacity, background-color; }
+  .app-btn:active, .bm-btn:active, .bm-tab:active, .v-chips button:active, .v-tuile:active { transform: none; }
+  .app-dlg:not([open]), .app-dlg[open] { transform: none; }
+}
+/* Tailles : 12 px au plus petit, titres de groupe en minuscules */
+.v-r small, .v-l small, .v-leg small, .v-spot small, .v-legende, .v-pill, .v-mt > summary small { font-size: 12px; }
+.v-courbe text, .v-pat text { font-size: 12px; }
+.v-date { font-size: 12px; width: 38px; }
+.v-grp { font-size: 13px; font-weight: 600; text-transform: none; letter-spacing: 0; margin: 8px 4px 6px; }
+.v-sous { font-size: 13px; font-weight: 600; color: var(--color-fg-muted); margin: 12px 0 2px; }
+/* Icônes au trait, teintées par catégorie */
+.v-ic { color: var(--t, #8a8780); background: color-mix(in srgb, var(--t, #8a8780) 14%, transparent); }
+.v-al-ic { flex: none; display: grid; margin-top: 1px; color: var(--color-ok); }
+.v-al.w .v-al-ic { color: var(--color-warn); }
+.v-al.b .v-al-ic { color: var(--color-bad); }
+.v-spot-t { display: inline-flex; gap: 6px; align-items: center; }
+/* Plafonds */
+.v-nom { margin-right: 4px; }
+.v-n small { font-weight: 400; color: var(--color-fg-muted); font-size: 12px; margin: 0; }
+.v-intacts > summary { list-style: none; display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--color-border-line); cursor: pointer; font-size: 13.5px; }
+.v-intacts > summary::-webkit-details-marker { display: none; }
+.v-intacts > summary small { display: block; color: var(--color-fg-muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.v-intacts > .v-r { padding-left: 8px; }
+/* Lignes cliquables en bouton */
+.v-r-btn { font: inherit; font-size: 13.5px; color: inherit; background: none; border: 0; border-top: 1px solid var(--color-border-line); width: 100%; text-align: left; box-sizing: border-box; }
+.v-in .v-r-btn:first-child { border-top: 0; }
+.v-edit { text-decoration: underline dotted; text-underline-offset: 3px; }
+/* Où est l'argent : tuiles teintées, texte à l'encre (contraste) */
+.v-tuile { font: inherit; text-align: left; border: 0; border-left: 4px solid var(--t); border-radius: 8px; padding: 8px 10px; min-width: 0; overflow: hidden; cursor: pointer; color: var(--color-fg); background: color-mix(in srgb, var(--t) 20%, var(--color-bg)); }
+.v-tuile span { display: block; font-size: 13px; }
+.v-tuile b { display: block; font-size: 15px; }
+.v-tuile small { display: block; font-size: 12px; color: var(--color-fg-muted); }
+/* Champ du coussin : 16 px pour éviter le zoom de Safari */
+.v-champ { display: flex; gap: 8px; align-items: center; font-size: 14px; }
+.v-input { font: inherit; font-size: 16px; width: 96px; padding: 6px 8px; border: 1px solid var(--color-border-line); border-radius: 8px; background: var(--color-bg); color: var(--color-fg); }
+/* Mois terminé : détail du calcul replié */
+.v-calc > summary { cursor: pointer; font-size: 13px; color: var(--color-fg-muted); }
+.v-calc[open] > summary { margin-bottom: 6px; }
+.v-calc .bm-note + .bm-note { margin-top: 6px; }
+
 @media (max-width: 560px) { .bm-tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; } .bm-tab { white-space: nowrap; padding: var(--cds-pad-sm) 7px; font-size: 14px; } }
 </style>
 
 <div class="bm">
   <header id="entete">
     <h1>Budget de Marin</h1>
-    <p class="bm-sub">Export bancaire du <span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=maj">—</span>. Titres-restaurant, mouvements internes, revenus exceptionnels et dépenses hors budget ne sont pas comptés.</p>
   </header>
 
   <nav class="bm-tabs" role="tablist" aria-label="Pages">
@@ -248,16 +317,16 @@ details[open] > summary .v-chev { transform: rotate(90deg); }
   </nav>
 
   <section class="bm-page" id="reste" role="tabpanel">
+    <div data-draw="v_alertes" class="v-alertes" aria-live="polite"></div>
     <div class="v-grid">
       <div class="v-col">
         <div class="bm-card" data-draw="v_donut"></div>
         <div class="bm-card" data-draw="v_courbe"></div>
-        <div data-draw="v_alertes" class="v-alertes"></div>
       </div>
       <div class="v-col">
         <div class="bm-card" data-draw="v_plafonds"></div>
         <div class="bm-card" data-draw="v_avenir"></div>
-        <button class="app-btn primary v-acheter" type="button" id="v-acheter">🛍️ Je veux acheter…</button>
+        <button class="app-btn primary v-acheter" type="button" id="v-acheter">Je veux acheter…</button>
       </div>
     </div>
 
@@ -275,8 +344,10 @@ details[open] > summary .v-chev { transform: rotate(90deg); }
           <p class="bm-take">Déjà viré : <b><span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=tr_deja">—</span></b> · Reste à virer : <b><span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=tr_reste">—</span></b>. <span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=tr_etat">—</span></p>
           <p class="bm-note"><span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=tr_note">—</span></p>
           <div data-draw="v_vir_choix"></div>
+          <details class="v-calc"><summary>Détail du calcul</summary>
           <p class="bm-note">Déjà viré = envoyé vers l’épargne <span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=tr_envois">—</span> − retiré de l’épargne <span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=tr_retraits">—</span>. Les envois faits du 1er au 10 du mois suivant comptent pour ce mois-ci.</p>
           <p class="bm-note">Calcul : revenus <span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=tr_revenus">—</span> − charges fixes passées <span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=tr_fixes">—</span> − loisirs et charges variables dépensés <span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=tr_depenses">—</span> − part des enveloppes <span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=tr_env">—</span> − dépassement de la caisse des enveloppes <span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=tr_trou_env">—</span> + report du mois précédent <span data-draw="txt" data-source="synthese" data-field="valeur" data-where="id=tr_report">—</span>.</p>
+          </details>
         </div>
         <div class="bm-card bm-cat" id="c-loisirs" data-draw="cat" data-source="mois_courant" data-bloc="Loisirs" data-per="en {mois}" data-tone="#7F77DD" data-ic="verre" data-note="Les montants prévus suivent les revenus du mois."></div>
         <div class="bm-card bm-cat" id="c-variables" data-draw="cat" data-source="mois_courant" data-bloc="Charges variables" data-per="en {mois}" data-tone="#378ADD" data-ic="panier" data-note="Montants prévus fixes."></div>
@@ -328,15 +399,15 @@ details[open] > summary .v-chev { transform: rotate(90deg); }
     <div>
       <h3 class="v-grp">Classement</h3>
       <div class="v-ios">
-        <details><summary><span class="v-ic" style="--t:#d08a1c">🏷️</span><span class="v-l">Règles « toujours ce marchand »</span><span class="v-v" data-draw="v_nperso"></span><span class="v-chev">›</span></summary>
+        <details><summary><span class="v-ic" style="--t:#d08a1c" data-icone="etiquette" aria-hidden="true"></span><span class="v-l">Règles « toujours ce marchand »</span><span class="v-v" data-draw="v_nperso"></span><span class="v-chev">›</span></summary>
           <div class="v-in"><p class="bm-note">Créées en reclassant une opération. Les supprimer ne change pas les opérations déjà classées.</p><ul class="app-perso" data-draw="perso"></ul></div></details>
-        <details><summary><span class="v-ic" style="--t:#8a8780">📋</span><span class="v-l">Règles de classement</span><span class="v-chev">›</span></summary>
+        <details><summary><span class="v-ic" style="--t:#8a8780" data-icone="liste" aria-hidden="true"></span><span class="v-l">Règles de classement</span><span class="v-chev">›</span></summary>
           <div class="v-in bm-tbox"><table data-source="regles" data-row-key="id">
             <thead><tr><th data-field="regle">Mot-clé ou libellé</th><th data-field="bloc">Catégorie</th><th data-field="poste">Poste</th></tr></thead>
             <tbody data-draw="tregles"></tbody>
           </table></div></details>
-        <button type="button" class="v-row" id="app-proposer"><span class="v-ic" style="--t:#7F77DD">✨</span><span class="v-l">Recalcul de janvier<small>propose des montants à partir des 12 derniers mois</small></span><span class="v-chev">›</span></button>
-        <details><summary><span class="v-ic" style="--t:#378ADD">🧮</span><span class="v-l">Comment c’est calculé</span><span class="v-chev">›</span></summary>
+        <button type="button" class="v-row" id="app-proposer"><span class="v-ic" style="--t:#7F77DD" data-icone="etincelle" aria-hidden="true"></span><span class="v-l">Recalcul de janvier<small>propose des montants à partir des 12 derniers mois</small></span><span class="v-chev">›</span></button>
+        <details><summary><span class="v-ic" style="--t:#378ADD" data-icone="calcul" aria-hidden="true"></span><span class="v-l">Comment c’est calculé</span><span class="v-chev">›</span></summary>
           <div class="v-in"><ul class="bm-rules">
             <li>Revenus du mois : salaire versé à la fin du mois précédent, plus la CAF et Action Logement reçues dans le mois.</li>
             <li>Somme à partager : revenus du mois, moins les charges fixes prévues, la part mensuelle des enveloppes et les montants prévus des charges variables.</li>
@@ -355,7 +426,7 @@ details[open] > summary .v-chev { transform: rotate(90deg); }
     </div>
     <div>
       <h3 class="v-grp">Sauvegarde</h3>
-      <div class="v-ios"><button type="button" class="v-row" id="v-sauver"><span class="v-ic" style="--t:#8a8780">💾</span><span class="v-l">Sauvegarder maintenant<small data-draw="v_sauve"></small></span><span class="v-chev">›</span></button></div>
+      <div class="v-ios"><button type="button" class="v-row" id="v-sauver"><span class="v-ic" style="--t:#8a8780" data-icone="disque" aria-hidden="true"></span><span class="v-l">Sauvegarder maintenant<small data-draw="v_sauve"></small></span><span class="v-chev">›</span></button></div>
     </div>
   </section>
 </div>
