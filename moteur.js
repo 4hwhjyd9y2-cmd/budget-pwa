@@ -179,7 +179,6 @@
     let maxId = anciens.reduce((m, o) => Math.max(m, Number(o.id) || 0), 0);
     const fn = (nomFichier || '').match(/(\d\d)-(\d\d)-(\d{4})/);
     const dExport = fn ? fn[3] + '-' + fn[2] + '-' + fn[1] : brut.reduce((m, o) => (o.date > m ? o.date : m), '');
-    const debut = moisDecale(dExport.slice(0, 7), -12);
     const vus = new Set(); let nouvelles = 0, aClasser = 0, migres = 0;
     const ops = [];
     brut.forEach((o) => {
@@ -187,21 +186,20 @@
       if (p && p.length) {
         let a = p.shift(); vus.add(a);
         if (a.poste === 'Mouvements internes' && regleEpargne(o)) { a = Object.assign({}, a, { poste: EPARGNE, src: 'règle' }); migres++; }
-        if (a.mois >= debut) ops.push(a);
+        ops.push(a);
         return;
       }
-      if (o.date.slice(0, 7) < debut) return;
       const c = classer(o, ctx);
       if (c.bloc === 'Exclu') return;
       nouvelles++; if (c.bloc === 'Non classé') aClasser++;
       ops.push({ date: o.date, libelle: o.libelle, montant: o.montant, bloc: c.bloc, poste: c.poste, id: ++maxId, mois: o.date.slice(0, 7), jour: frDate(o.date), src: c.src });
     });
-    // Opérations plus anciennes que l'export mais encore dans la fenêtre de 12 mois
-    anciens.forEach((o) => { if (!vus.has(o) && o.mois >= debut && o.date < brut.reduce((m, x) => (x.date < m ? x.date : m), '9999')) ops.push(o); });
+    // Opérations plus anciennes que l'export : toutes gardées (l'historique n'est jamais effacé)
+    anciens.forEach((o) => { if (!vus.has(o) && o.date < brut.reduce((m, x) => (x.date < m ? x.date : m), '9999')) ops.push(o); });
     ops.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.id - b.id));
     // Solde de fin de journée : l'export liste les opérations du plus récent au plus ancien, ou l'inverse
     const soldes = {};
-    Object.entries(bundle.soldes || {}).forEach(([d, v]) => { if (d.slice(0, 7) >= debut) soldes[d] = v; });
+    Object.entries(bundle.soldes || {}).forEach(([d, v]) => { soldes[d] = v; });
     const avecSolde = brut.filter((o) => o.solde !== null);
     if (avecSolde.length) {
       const desc = avecSolde[0].date >= avecSolde[avecSolde.length - 1].date;
@@ -330,7 +328,7 @@
       return { envois, retraits, net: r2(envois - retraits) };
     };
     // Report : ce qui manque à la fin d'un mois (virement dû moins virement net) passe au mois suivant,
-    // sauf si tu as choisi de le laisser filer (pris sur le coussin du compte courant)
+    // sauf si tu as choisi de le laisser filer (pris sur le compte courant)
     let report = 0;
     for (let m = premierMois; m < mt; m = moisDecale(m, 1)) {
       const ecart = r2(brutVirement(m).v + report - mvtEpargne(m).net);
@@ -385,7 +383,7 @@
       S('tr_virement', 'À virer', Math.max(0, virTotal), '€'),
       S('tr_deja', 'Déjà viré (net des retraits)', deja, '€'),
       S('tr_reste', 'Reste à virer', Math.max(0, resteVir), '€'),
-      S('tr_etat', 'État du virement', manque > 0 ? 'Mois fini à −' + fr2(manque) + ' € : cet argent a été pris sur ton coussin du compte courant.' : virTotal <= 0 ? 'Rien à virer ce mois-ci.' : deja <= 0 && mvt.retraits === 0 ? 'Pas encore fait.' : resteVir <= 0 ? 'Fait.' : 'En partie fait.'),
+      S('tr_etat', 'État du virement', manque > 0 ? 'Mois fini à −' + fr2(manque) + ' € : cet argent a été pris sur ton compte courant.' : virTotal <= 0 ? 'Rien à virer ce mois-ci.' : deja <= 0 && mvt.retraits === 0 ? 'Pas encore fait.' : resteVir <= 0 ? 'Fait.' : 'En partie fait.'),
       S('tr_note', 'Report', manque > 0 ? (laisses[mt] ? 'Tu as choisi de le laisser filer : rien n’est reporté sur le mois prochain.' : fr2(manque) + ' € seront déduits du virement du mois prochain, sauf si tu choisis de les laisser filer.') : 'Montant à virer sur ton compte d’épargne en début de mois.')
     ];
     // ---------- Vue « Ce mois-ci » ----------
@@ -478,12 +476,19 @@
     const P = bundle.patrimoine || {}, ops = bundle.operations || [];
     const finMois = (m) => m + '-31';
     const fluxLivret = ops.filter((o) => /LIVRET A/i.test(o.libelle) && o.bloc === 'Interne');
+    // Après la valeur saisie, chaque 1er janvier ajoute les intérêts estimés (taux saisi × valeur au 31 décembre)
     const livretAu = (d) => {
       if (!P.livret) return null;
-      const b = P.livret;
-      return r2(d >= b.date
-        ? b.valeur - fluxLivret.filter((o) => o.date > b.date && o.date <= d).reduce((s, o) => s + Number(o.montant), 0)
-        : b.valeur + fluxLivret.filter((o) => o.date > d && o.date <= b.date).reduce((s, o) => s + Number(o.montant), 0));
+      const b = P.livret, taux = Number(b.taux) || 0;
+      if (d < b.date) return r2(b.valeur + fluxLivret.filter((o) => o.date > d && o.date <= b.date).reduce((s, o) => s + Number(o.montant), 0));
+      let v = b.valeur, depuis = b.date;
+      for (let an = Number(b.date.slice(0, 4)) + 1; an + '-01-01' <= d; an++) {
+        const jan = an + '-01-01';
+        v -= fluxLivret.filter((o) => o.date > depuis && o.date < jan).reduce((s, o) => s + Number(o.montant), 0);
+        v += v * taux / 100; depuis = jan > depuis ? (an - 1) + '-12-31' : depuis;
+      }
+      v -= fluxLivret.filter((o) => o.date > depuis && o.date <= d).reduce((s, o) => s + Number(o.montant), 0);
+      return r2(v);
     };
     // Avant la première valeur saisie, le PEA compte pour 0 (sauf pour la valeur du jour)
     const peaAu = (d) => { const l = (P.pea || []).filter((x) => x.date <= d).sort((a, b) => (a.date < b.date ? 1 : -1))[0]; return l ? l.valeur : (P.pea || []).length ? 0 : null; };
@@ -524,7 +529,8 @@
       complet: livret !== null && pea !== null && tr !== null && dette !== null,
       livret, pea, pea_date: peaDer ? frDate(peaDer.date) : '', tr, tr_date: P.tr ? frDate(P.tr.date) : '',
       dette, fin_pret: finPret(), brut, net: netV, courbe,
-      matelas: depMois > 0 ? Math.round(((livret || 0) + (tr || 0)) / depMois * 10) / 10 : 0
+      livret_taux: P.livret && P.livret.taux ? Number(P.livret.taux) : null,
+      matelas: depMois > 0 ? Math.round((livret || 0) / depMois * 10) / 10 : 0
     };
   }
 

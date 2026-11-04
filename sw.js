@@ -1,6 +1,6 @@
 // Cache de l'appli pour un usage hors ligne. Changer VERSION à chaque mise à jour des fichiers.
-const VERSION = 'budget-v11';
-const FICHIERS = ['./', 'index.html', 'moteur.js', 'dash-shim.js', 'app.js', 'vues.js', 'manifest.json', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png'];
+const VERSION = 'budget-v12';
+const FICHIERS = ['./', 'index.html', 'moteur.js', 'dash-shim.js', 'vues.js', 'manifest.json', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(VERSION).then((c) => c.addAll(FICHIERS)).then(() => self.skipWaiting()));

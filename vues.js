@@ -98,8 +98,15 @@
   const barre = (pct, couleur, repere) => { const b = el('div', 'v-barre'), i = el('i'); i.style.width = Math.max(0, Math.min(100, pct * 100)) + '%'; i.style.background = couleur; b.append(i); if (repere !== undefined && repere !== null) { const m = el('b'); m.style.left = Math.min(99, repere * 100) + '%'; b.append(m); } return b; };
 
   // ---------- Navigation : onglets, page poussée, barre compacte ----------
+  const montrer = (nom) => {
+    const tabs = [...document.querySelectorAll('.bm-tab')];
+    if (!tabs.some((t) => t.dataset.tab === nom)) nom = 'reste';
+    tabs.forEach((t) => t.setAttribute('aria-selected', String(t.dataset.tab === nom)));
+    document.querySelectorAll('.bm-page').forEach((p) => { p.hidden = p.id !== nom; });
+  };
   const onglet = (n) => { document.querySelector('.bm-tab[data-tab="' + n + '"]').click(); };
-  document.querySelectorAll('.bm-tab').forEach((t) => t.addEventListener('click', () => { window.scrollTo(0, 0); majHaut(); }));
+  document.querySelectorAll('.bm-tab').forEach((t) => t.addEventListener('click', () => { montrer(t.dataset.tab); history.replaceState(null, '', '#' + t.dataset.tab); window.scrollTo(0, 0); majHaut(); }));
+  montrer(location.hash.slice(1));
   document.querySelectorAll('[data-importer]').forEach((b) => { b.onclick = () => $('app-file').click(); });
 
   let page = null;
@@ -137,6 +144,7 @@
   dash.draw('v_mois_titre', (h) => { h.textContent = cap(MOIS_L[Number(V().mc.slice(5, 7)) - 1]); });
   dash.draw('v_mois_sous', (p) => { const e = A.bundle().export; p.textContent = e ? 'Opérations jusqu’au ' + Number(e.slice(8, 10)) + ' ' + moisCourt(e) : ''; });
 
+  const finAjustee = () => { const v = V(), e = v.epargne; return v.fin - (e.laisse ? 0 : e.manque) + Math.min(0, v.caisse.valeur); };
   const blocsMois = () => { const v = V(); return [
     ['Loisirs', v.depense.loisirs, v.prevu.loisirs, 'var(--indigo)'],
     ['Variables', v.depense.variables, v.prevu.variables, 'var(--blue)'],
@@ -170,11 +178,11 @@
       if (d > p) rows.push(ligne({ ic: 'alerte', ton: 'var(--red)', titre: n + ' dépassés de ' + eur(d - p), sous: 'Compense sur les autres postes', clic: () => $('v-plafonds').scrollIntoView({ behavior: 'smooth' }), chev: true }));
       else if (d / p > rythme + 0.15) rows.push(ligne({ ic: 'alerte', ton: 'var(--orange)', titre: n + ' : ' + Math.round(d / p * 100) + ' % dépensés', sous: 'Le mois n’en est qu’à ' + Math.round(rythme * 100) + ' %', clic: () => $('v-plafonds').scrollIntoView({ behavior: 'smooth' }), chev: true }));
     });
-    if (e.manque > 0) rows.push(ligne({ ic: 'baisse', ton: 'var(--red)', titre: cap(mt) + ' fini à −' + eur(e.manque), sous: 'Pris sur ton coussin · ' + (e.laisse ? 'laissé filer' : 'reporté'), clic: pageMt, chev: true }));
+    if (e.manque > 0) rows.push(ligne({ ic: 'baisse', ton: 'var(--red)', titre: cap(mt) + ' fini à −' + eur(e.manque), sous: 'Pris sur ton compte courant · ' + (e.laisse ? 'laissé filer' : 'reporté'), clic: pageMt, chev: true }));
     const k = v.caisse.valeur;
     rows.push(ligne({ ic: 'caisse', ton: k < 0 ? 'var(--orange)' : 'var(--green)', titre: 'Caisse des enveloppes', sous: k < 0 ? 'Retirée de l’épargne ' + de(v.mois_mc.split(' ')[0]) : 'D’avance pour les grosses dépenses', val: signe(k), valCls: k < 0 ? 'neg' : '' }));
     const cs = v.coussin.dernier;
-    if (cs && (v.coussin.sous_seuil || v.coussin.baisse)) rows.push(ligne({ ic: 'bouee', ton: v.coussin.sous_seuil ? 'var(--red)' : 'var(--orange)', titre: 'Coussin du compte : ' + eur(cs.solde), sous: v.coussin.sous_seuil ? 'Sous ton minimum de ' + eur(v.coussin.seuil) : 'En baisse de ' + eur(-cs.ecart) + ' en un mois', clic: () => onglet('duree'), chev: true }));
+    if (cs && (v.coussin.sous_seuil || v.coussin.baisse)) rows.push(ligne({ ic: 'bouee', ton: v.coussin.sous_seuil ? 'var(--red)' : 'var(--orange)', titre: 'Compte courant : ' + eur(cs.solde) + ' avant le salaire', sous: v.coussin.sous_seuil ? 'Sous ton minimum de ' + eur(v.coussin.seuil) : 'En baisse de ' + eur(-cs.ecart) + ' en un mois', clic: () => onglet('duree'), chev: true }));
     if (e.reste > 0) rows.push(ligne({ ic: 'envoi', ton: 'var(--teal)', titre: eur2(e.reste) + ' ' + de(mt) + ' à virer', sous: 'Vers ton épargne', clic: pageMt, chev: true }));
     else if (e.a_virer > 0) rows.push(ligne({ ic: 'ok', ton: 'var(--green)', titre: 'Épargne ' + de(mt) + ' virée' }));
     if (v.nc) rows.push(ligne({ ic: 'etiquette', ton: 'var(--orange)', titre: v.nc + ' opération' + (v.nc > 1 ? 's' : '') + ' à classer', clic: () => voirOps({ bloc: 'Non classé' }), chev: true }));
@@ -199,6 +207,13 @@
     s.append(svg('circle', { cx: X(aj.j), cy: Y(aj.v), r: 4, fill: 'var(--fg)' }), svg('circle', { cx: X(v.nbJours), cy: Y(v.fin), r: 4, fill: v.fin < 0 ? 'var(--red)' : 'var(--green)' }),
       svg('text', { x: x0, y: H - 4 }, '1 ' + moisCourt(v.mc)), svg('text', { x: x1, y: H - 4, 'text-anchor': 'end' }, v.nbJours + ' ' + moisCourt(v.mc)));
     carte.append(tete, s, el('p', 'v-note', 'Trait plein : ce qui s’est passé. Pointillé : charges fixes à venir et reste du budget dépensé au rythme prévu.'));
+    const fa = finAjustee();
+    if (Math.abs(fa - v.fin) >= 0.5) {
+      const e = v.epargne, causes = [];
+      if (e.manque > 0 && !e.laisse) causes.push('le report ' + de(e.mois.split(' ')[0]) + ' (−' + eur(e.manque) + ')');
+      if (v.caisse.valeur < 0) causes.push('le trou de la caisse (' + eur(v.caisse.valeur) + ')');
+      const l = el('p', 'v-note'); l.append('Avec ' + causes.join(' et ') + ' : ', el('b', fa < 0 ? 'neg' : 'pos', signe(fa))); l.style.margin = '6px 0 0'; carte.append(l);
+    }
     carte.querySelector('.v-note').style.margin = '6px 0 0';
     c.replaceChildren(section('Épargne prévue'), carte);
   });
@@ -246,7 +261,7 @@
     if (e.manque > 0) {
       const b = el('button', 'app-btn', e.laisse ? 'Finalement, le reporter' : 'Laisser filer'); b.type = 'button'; b.style.cssText = 'width:100%;margin-top:10px';
       b.onclick = () => { const bu = A.bundle(), l = Object.assign({}, bu.deficits_laisses || {}); if (e.laisse) delete l[e.cle]; else l[e.cle] = true; A.maj(Object.assign({}, bu, { deficits_laisses: l }), e.laisse ? 'Le manque sera reporté sur le mois suivant.' : 'Manque laissé filer : rien n’est reporté.'); };
-      out.push(b, el('p', 'v-note', 'Laisser filer : tu acceptes que ce manque soit pris sur le coussin du compte, sans le déduire du mois suivant.'));
+      out.push(b, el('p', 'v-note', 'Laisser filer : tu acceptes que ce manque soit pris sur ton compte courant, sans le déduire du mois suivant.'));
     }
     const calc = el('details'), sm = el('summary', 'v-note', 'Détail du calcul ›'); sm.style.cursor = 'pointer';
     calc.append(sm, el('p', 'v-note', 'Revenus ' + eur2(syn('tr_revenus')) + ' − charges fixes passées ' + eur2(syn('tr_fixes')) + ' − loisirs et charges variables dépensés ' + eur2(syn('tr_depenses')) + ' − part des enveloppes ' + eur2(syn('tr_env')) + ' − dépassement de la caisse ' + eur2(syn('tr_trou_env')) + ' + report du mois précédent ' + eur2(syn('tr_report')) + '. Les envois vers l’épargne faits du 1er au 10 du mois suivant comptent pour ce mois-ci.'));
@@ -275,11 +290,14 @@
     const out = [];
     if (choix.type === 'mois') {
       const l = v.postes.find((x) => x.id === choix.id), reste = Number(l.reste);
-      if (m <= reste) out.push(verdict('ok', 'var(--green)', 'Oui, c’est dans ton budget', 'Il restera ' + eur(reste - m) + ' en ' + l.poste + ' ce mois-ci.'));
+      // Le « Oui » n'est donné que si le mois, report et caisse compris, ne finit pas déjà dans le négatif
+      const fa = finAjustee();
+      if (m <= reste && fa >= 0) out.push(verdict('ok', 'var(--green)', 'Oui, c’est dans ton budget', 'Il restera ' + eur(reste - m) + ' en ' + l.poste + ' ce mois-ci.'));
+      else if (m <= reste) out.push(verdict('alerte', 'var(--orange)', 'Dans le budget du poste, mais ton mois est déjà négatif', 'Il restera ' + eur(reste - m) + ' en ' + l.poste + ', mais avec le report et la caisse ton mois finit à ' + signe(fa) + '. Chaque euro dépensé creuse ce trou.'));
       else {
         const dep = m - Math.max(0, reste), autres = v.postes.filter((x) => x.id !== l.id).reduce((s, x) => s + Math.max(0, Number(x.reste)), 0);
-        out.push(verdict('alerte', 'var(--orange)', 'Ça dépasse de ' + eur(dep), 'Il reste ' + eur(Math.max(0, reste)) + ' en ' + l.poste + '. Compense sur tes autres postes (' + eur(autres) + ' restants), sinon l’épargne de fin de mois passe de ' + signe(v.fin) + ' à ' + signe(v.fin - dep) + '.'));
-        if (reste > 0) out.push(verdict('ok', 'var(--green)', 'Jusqu’à ' + eur(reste) + ', c’est bon', 'Le montant maximum sans toucher à l’épargne ni aux autres postes.'));
+        out.push(verdict('alerte', 'var(--orange)', 'Ça dépasse de ' + eur(dep), 'Il reste ' + eur(Math.max(0, reste)) + ' en ' + l.poste + '. Compense sur tes autres postes (' + eur(autres) + ' restants), sinon ton mois passe de ' + signe(fa) + ' à ' + signe(fa - dep) + '.'));
+        if (reste > 0 && fa >= 0) out.push(verdict('ok', 'var(--green)', 'Jusqu’à ' + eur(reste) + ', c’est bon', 'Le montant maximum sans toucher à l’épargne ni aux autres postes.'));
       }
     } else {
       const l = v.enveloppes.find((x) => x.id === choix.id), reste = Number(l.reste), k = v.caisse.valeur;
@@ -326,36 +344,42 @@
     c.replaceChildren(...out);
   });
   const lignesComptes = (p) => [
-    ligne({ ic: 'banque', ton: 'var(--green)', titre: 'Livret A', sous: p.livret === null ? 'À saisir une fois' : 'Suivi avec les virements', val: p.livret === null ? '—' : eur(p.livret), clic: () => placer('livret'), chev: true }),
+    ligne({ ic: 'banque', ton: 'var(--green)', titre: 'Livret A', sous: p.livret === null ? 'À saisir une fois' : p.livret_taux ? 'Intérêts estimés à ' + String(p.livret_taux).replace('.', ',') + ' %' : 'Ajoute son taux pour compter les intérêts', val: p.livret === null ? '—' : eur(p.livret), clic: () => placer('livret'), chev: true }),
     ligne({ ic: 'hausse', ton: 'var(--indigo)', titre: 'PEA', sous: p.pea_date ? 'Valeur du ' + p.pea_date.slice(0, 5) : 'À saisir', val: p.pea === null ? '—' : eur(p.pea), clic: () => placer('pea'), chev: true }),
     ligne({ ic: 'portefeuille', ton: 'var(--blue)', titre: 'Trade Republic', sous: p.tr_date ? 'Solde au ' + p.tr_date.slice(0, 5) : 'Importe son export CSV', val: p.tr === null ? '—' : eur(p.tr), clic: () => placer('tr'), chev: true }),
     ligne({ ic: 'diplome', ton: 'var(--red)', titre: 'Prêt étudiant', sous: p.fin_pret ? 'Fin en ' + p.fin_pret : 'À saisir une fois', val: p.dette === null ? '—' : eur(-p.dette), valCls: 'neg', clic: () => placer('pret'), chev: true })];
-  dash.draw('v_comptes', (c) => {
-    const v = V(), p = v.patrimoine, k = v.caisse.valeur;
-    const tuile = (ic, couleur, t, b, s, cls) => { const d = el('div', 'v-tuile'), h = el('div', 't'), i = dessin(ic, 15); i.style.color = couleur; h.append(i, t); d.append(h, el('b', cls || '', b), el('small', '', s)); return d; };
-    const tu = el('div', 'v-tuiles');
-    tu.append(tuile('bouee', 'var(--green)', 'Matelas', String(p.matelas).replace('.', ',') + ' mois', 'de dépenses normales'),
-      tuile('caisse', 'var(--orange)', 'Caisse', signe(k), 'enveloppes', k < 0 ? 'neg' : ''));
-    c.replaceChildren(section('Comptes'), liste(lignesComptes(p)), tu);
-  });
+  dash.draw('v_comptes', (c) => { c.replaceChildren(section('Comptes'), liste(lignesComptes(V().patrimoine))); });
+  // Réserve : ce qui protège des coups durs (Livret A), la caisse des enveloppes et le compte courant en fin de mois
   dash.draw('v_coussin', (c) => {
-    const k = V().coussin;
-    if (!k.liste.length) { c.replaceChildren(section('Coussin du compte'), el('p', 'v-note', 'Importe un export récent de ta banque : son solde après chaque opération permet de suivre le coussin.')); return; }
-    const mx = Math.max(...k.liste.map((x) => x.solde), k.seuil, 1);
-    const rows = k.liste.slice().reverse().map((x) => ligne({ titre: cap(x.mois_lib), sous: 'Veille du salaire, le ' + x.jour.slice(0, 5) + (x.ecart === null ? '' : ' · ' + signe(x.ecart)),
-      apres: barre(x.solde / mx, x.solde < k.seuil ? 'var(--red)' : 'var(--green)', k.seuil / mx), val: eur(x.solde), valCls: x.solde < k.seuil ? 'neg' : '' }));
-    const min = el('label', 'v-ligne'); min.append(el('div', 'v-txt', 'Minimum souhaité'));
-    const inp = el('input', 'v-input'); inp.type = 'text'; inp.inputMode = 'numeric'; inp.value = eur(k.seuil); inp.setAttribute('aria-label', 'Minimum souhaité pour le coussin');
-    inp.onchange = () => { const n = nombre(inp.value); if (n >= 0) A.maj(Object.assign({}, A.bundle(), { coussin_min: n }), 'Minimum du coussin enregistré.'); else A.msg('Minimum invalide : rien n’a été changé.', true); };
-    min.append(inp); rows.push(min);
-    c.replaceChildren(section('Coussin du compte'), liste(rows), el('p', 'v-note', 'Ce qui reste sur le compte quand le mois se termine. Le trait marque ton minimum ; ta vraie sécurité reste le Livret A.'));
+    const v = V(), p = v.patrimoine, k = v.coussin, cs = v.caisse.valeur;
+    const rows = [
+      ligne({ ic: 'bouee', ton: 'var(--green)', titre: 'Livret A', sous: 'Couvre ' + String(p.matelas).replace('.', ',') + ' mois de dépenses normales', val: p.livret === null ? '—' : eur(p.livret) }),
+      ligne({ ic: 'caisse', ton: 'var(--orange)', titre: 'Caisse des enveloppes', sous: cs < 0 ? 'À rattraper sur l’épargne' : 'D’avance pour les grosses dépenses', val: signe(cs), valCls: cs < 0 ? 'neg' : '' })];
+    const out = [section('Réserve'), liste(rows)];
+    if (!k.liste.length) out.push(el('p', 'v-note', 'Importe un export récent de ta banque : son solde après chaque opération permet de suivre ton compte courant en fin de mois.'));
+    else {
+      const mx = Math.max(...k.liste.map((x) => x.solde), k.seuil, 1);
+      const cc = k.liste.slice().reverse().map((x) => ligne({ titre: cap(x.mois_lib), sous: 'Veille du salaire, le ' + x.jour.slice(0, 5) + (x.ecart === null ? '' : ' · ' + signe(x.ecart)),
+        apres: barre(x.solde / mx, x.solde < k.seuil ? 'var(--red)' : 'var(--green)', k.seuil / mx), val: eur(x.solde), valCls: x.solde < k.seuil ? 'neg' : '' }));
+      const min = el('label', 'v-ligne'); min.append(el('div', 'v-txt', 'Minimum souhaité'));
+      const inp = el('input', 'v-input'); inp.type = 'text'; inp.inputMode = 'numeric'; inp.value = eur(k.seuil); inp.setAttribute('aria-label', 'Minimum souhaité sur le compte courant');
+      inp.onchange = () => { const n = nombre(inp.value); if (n >= 0) A.maj(Object.assign({}, A.bundle(), { coussin_min: n }), 'Minimum du compte courant enregistré.'); else A.msg('Minimum invalide : rien n’a été changé.', true); };
+      min.append(inp); cc.push(min);
+      const t = el('h3', 'v-jour', 'Compte courant, avant chaque salaire'); out.push(t, liste(cc));
+    }
+    out.push(el('p', 'v-note', 'Le Livret A est ta vraie réserve ; les espèces Trade Republic, venues du prêt, n’y sont pas comptées. Le compte courant montre ce qui reste quand le mois se termine.'));
+    c.replaceChildren(...out);
   });
 
   // Placements : feuille de saisie (une saisie invalide garde la feuille ouverte, avec l'erreur)
   let enCours = null;
   const dPl = A.dialogue('<h2 id="pl-titre"></h2><p id="pl-aide"></p><div id="pl-champs" style="display:grid;gap:8px"></div>' + A.boutons('Enregistrer'), () => {
     const b = A.bundle(), P = Object.assign({}, b.patrimoine), val = (i) => nombre($('pl-' + i).value);
-    if (enCours === 'livret') { if (!(val(0) >= 0)) return 'Tape un montant positif, par exemple 22 950.'; P.livret = { valeur: val(0), date: auj() }; }
+    if (enCours === 'livret') {
+      if (!(val(0) >= 0)) return 'Tape un montant positif, par exemple 22 950.';
+      const t = $('pl-1').value.trim() === '' ? 0 : val(1); if (!(t >= 0 && t < 20)) return 'Taux : tape un nombre, par exemple 1,7, ou laisse vide.';
+      P.livret = { valeur: val(0), date: auj(), taux: t };
+    }
     else if (enCours === 'pea') { if (!(val(0) >= 0)) return 'Tape un montant positif.'; P.pea = (P.pea || []).filter((x) => x.date !== auj()).concat([{ date: auj(), valeur: val(0) }]); }
     else if (enCours === 'tr') { if (!isFinite(val(0))) return 'Tape un montant, par exemple 5 478,40.'; const fins = Object.assign({}, P.tr && P.tr.fins); fins[auj().slice(0, 7)] = val(0); P.tr = { date: auj(), solde: val(0), fins }; }
     else if (enCours === 'pret') {
@@ -378,7 +402,7 @@
   const placer = (k) => {
     const P = A.bundle().patrimoine || {}, p = V().patrimoine; enCours = k;
     const T = {
-      livret: ['Livret A', 'Valeur aujourd’hui. Ensuite, l’appli suit seule les virements depuis et vers le livret.', champ(0, 'Valeur (€)', p.livret)],
+      livret: ['Livret A', 'Valeur aujourd’hui. Ensuite, l’appli suit seule les virements depuis et vers le livret, et ajoute chaque 1er janvier les intérêts estimés avec le taux indiqué.', [...champ(0, 'Valeur (€)', p.livret), ...champ(1, 'Taux annuel (%)', p.livret_taux)]],
       pea: ['PEA', 'Valeur affichée dans ton appli de bourse aujourd’hui.', champ(0, 'Valeur (€)', p.pea)],
       tr: ['Trade Republic', 'Le plus simple : importe l’export CSV de Trade Republic (bouton en haut de Patrimoine). Sinon, tape le solde espèces.', champ(0, 'Solde espèces (€)', p.tr)],
       pret: ['Prêt étudiant', 'Capital restant dû aujourd’hui, d’après ton tableau d’amortissement.', [...champ(0, 'Capital restant (€)', p.dette), ...champ(1, 'Taux annuel (%)', P.pret && P.pret.taux), ...champ(2, 'Mensualité (€)', P.pret && P.pret.mensualite), ...champ(3, 'Mois du déblocage (AAAA-MM, facultatif)', P.pret && P.pret.debut, 'texte')]]
@@ -395,7 +419,7 @@
     const changer = (o) => { Object.assign(ops, o, { limite: 120 }); dash.draw('v_ops_filtres'); dash.draw('v_ops'); };
     puce(cap(MOIS_L[Number(v.mc.slice(5, 7)) - 1]), ops.mois === v.mc && !ops.depuis, () => changer({ mois: v.mc, depuis: '' }));
     puce(cap(MOIS_L[Number(mt.slice(5, 7)) - 1]), ops.mois === mt && !ops.depuis, () => changer({ mois: mt, depuis: '' }));
-    puce('12 mois', !ops.mois && !ops.depuis, () => changer({ mois: '', depuis: '' }));
+    puce('Tout', !ops.mois && !ops.depuis, () => changer({ mois: '', depuis: '' }));
     const blocs = Array.from(new Set((dash.data('operations').data || []).map((r) => r.bloc))).sort();
     const sel = el('select', 'v-puce' + (ops.bloc ? ' on' : '')); sel.setAttribute('aria-label', 'Catégorie');
     sel.append(new Option('Toutes les catégories', ''), ...blocs.map((b) => new Option(b, b))); sel.value = ops.bloc;
