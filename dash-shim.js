@@ -19,6 +19,9 @@
   };
   let bundle = null;
   try { bundle = versV2(JSON.parse(localStorage.getItem(KEY) || 'null')); } catch (e) { bundle = null; }
+  // Postes renommés à la demande : appliqué une fois aux données de l'appareil (et à une sauvegarde réimportée)
+  const RENOMMAGES = [['Tabac', 'CE']];
+  if (bundle) { const b = M.renommerPostes(bundle, RENOMMAGES); if (b !== bundle) { bundle = b; localStorage.setItem(KEY, JSON.stringify(bundle)); } }
 
   // Message en haut de page ; `annuler` ajoute un bouton pour revenir en arrière
   // Le message disparaît seul après quelques secondes (plus longtemps s'il propose d'annuler)

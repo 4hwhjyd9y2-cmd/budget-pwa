@@ -68,7 +68,7 @@
     croix: '<path d="M7 7l10 10M17 7 7 17"/>',
     point: '<circle cx="12" cy="12" r="3"/>'
   };
-  const ICONES = [[/resto|bar|sortie/i, 'resto'], [/v[eê]tement/i, 'vetement'], [/tabac/i, 'tabac'], [/soin|coiff/i, 'ciseaux'], [/carbur|p[ée]age/i, 'carburant'], [/course/i, 'panier'],
+  const ICONES = [[/resto|bar|sortie/i, 'resto'], [/v[eê]tement/i, 'vetement'], [/tabac/i, 'tabac'], [/^c\.?s?\.?e\.?$/i, 'etiquette'], [/soin|coiff/i, 'ciseaux'], [/carbur|p[ée]age/i, 'carburant'], [/course/i, 'panier'],
     [/maison|quotidien/i, 'maison'], [/cadeau/i, 'cadeau'], [/assurance/i, 'bouclier'], [/entretien|voiture|moto/i, 'cle'], [/achat/i, 'sac'], [/sant/i, 'sante'], [/loyer|logement/i, 'maison'],
     [/pr[êe]t/i, 'diplome'], [/sport|salle/i, 'haltere'], [/t[ée]l[ée]phone/i, 'telephone'], [/salaire|caf\b|revenu/i, 'billet'], [/[ée]pargne|virement|interne/i, 'envoi'], [/claude|abonn|prime/i, 'etincelle']];
   const icone = (p) => { const x = ICONES.find(([re]) => re.test(p || '')); return x ? x[1] : 'point'; };

@@ -128,7 +128,7 @@
     [/^alimentation/i, 'Charges variables', 'Courses'],
     [/^restaurants/i, 'Loisirs', 'Restos, bars et sorties'],
     [/^(péages|carburant|parking|transports quotidiens)/i, 'Charges variables', 'Carburant et péages'],
-    [/^tabac/i, 'Loisirs', 'Tabac'],
+    [/^tabac/i, 'Loisirs', 'CE'],
     [/^vêtements/i, 'Loisirs', 'Vêtements'],
     [/^(dons et cadeaux|livres)/i, 'Enveloppes', 'Cadeaux'],
     [/^(divertissement|club \/ association|loisirs - autres)/i, 'Loisirs', 'Restos, bars et sorties'],
@@ -623,6 +623,16 @@
     return 0;
   }
 
-  const api = { lireExport, importer, reclasser, calculer, proposer, lireZip, postes, marchand, lireTR, estTR };
+  // Renomme des postes partout (montants de référence, opérations, règles), une seule fois par renommage
+  function renommerPostes(bundle, paires) {
+    const faits = new Set(bundle.renommages || []), aFaire = paires.filter(([a, b]) => !faits.has(a + '>' + b));
+    if (!aFaire.length) return bundle;
+    const ren = (x) => { const p = aFaire.find(([a]) => x && x.poste === a); return p ? Object.assign({}, x, { poste: p[1] }) : x; };
+    const l = (k) => (bundle[k] || []).map(ren);
+    return Object.assign({}, bundle, { references: l('references'), operations: l('operations'), regles: l('regles'), regles_auto: l('regles_auto'), regles_perso: l('regles_perso'),
+      renommages: [...faits, ...aFaire.map(([a, b]) => a + '>' + b)] });
+  }
+
+  const api = { renommerPostes, lireExport, importer, reclasser, calculer, proposer, lireZip, postes, marchand, lireTR, estTR };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.Moteur = api;
 })(typeof window !== 'undefined' ? window : globalThis);
