@@ -278,10 +278,11 @@
       const dep = net(mt, r.poste), mtt = Number(r.montant);
       const base = { id: 'f_' + r.id, bloc: 'Charges fixes', poste: r.poste, depense: dep };
       if (r.id === 'sport') {
-        // Formule de 45 € en cours, puis 30 € toutes les 4 semaines (0, 1 ou 2 paiements dans le mois)
-        const f45 = Math.abs(dep - 45) < 0.01, x30 = dep > 0 && Math.abs(dep / 30 - Math.round(dep / 30)) < 0.001;
-        const etat = f45 ? 'Formule de 45 € payée' : dep === 0 ? 'Rien ce mois, formule en cours' : x30 ? 'Conforme' : 'Écart';
-        return Object.assign(base, { seuil: null, ok: etat !== 'Écart', etat, note: 'Formule de 45 € en cours, puis 30 € toutes les 4 semaines' });
+        // Abonnement mensuel prélevé en début de mois ; un mois peut compter deux prélèvements (décembre 2026).
+        // L'ancienne formule de 45 € reste reconnue pour les mois passés.
+        const n = mtt > 0 ? dep / mtt : 0, entier = dep > 0 && Math.abs(n - Math.round(n)) < 0.001, f45 = Math.abs(dep - 45) < 0.01;
+        const etat = f45 ? 'Formule de 45 € payée' : !entier ? (dep === 0 ? 'Aucun paiement trouvé' : 'Écart') : Math.round(n) === 1 ? 'Conforme' : Math.round(n) + ' prélèvements ce mois';
+        return Object.assign(base, { seuil: mtt, ok: f45 || entier, etat, note: 'Mensuel, prélevé en début de mois' });
       }
       if (r.id === 'prime') {
         const att = mt.slice(5) === '02' ? r2(mtt * 12) : 0, ok = Math.abs(dep - att) <= Math.max(1, att * 0.1);
@@ -408,7 +409,6 @@
       const passe = net(mc, r.poste), j = jourHabituel(r.poste);
       let attendu = Number(r.montant);
       if (r.id === 'prime') attendu = mc.slice(5) === '02' ? r2(attendu * 12) : 0;
-      if (r.id === 'sport') attendu = net(mt, r.poste);
       return { poste: r.poste, passe, attendu: r2(attendu), jour: j || nbJours, reste: passe > 0.01 ? 0 : r2(attendu) };
     });
     const courbe = [{ j: 0, v: revMc.total }];
@@ -633,6 +633,14 @@
       renommages: [...faits, ...aFaire.map(([a, b]) => a + '>' + b)] });
   }
 
-  const api = { renommerPostes, lireExport, importer, reclasser, calculer, proposer, lireZip, postes, marchand, lireTR, estTR };
+  // Montants de référence corrigés à la demande, une seule fois chacun
+  function ajusterReferences(bundle, liste) {
+    const faits = new Set(bundle.ajustements || []), aFaire = liste.filter((a) => !faits.has(a.cle));
+    if (!aFaire.length) return bundle;
+    const refs = bundle.references.map((r) => { const a = aFaire.find((x) => x.id === r.id); return a ? Object.assign({}, r, { montant: a.montant, note: a.note }) : r; });
+    return Object.assign({}, bundle, { references: refs, ajustements: [...faits, ...aFaire.map((a) => a.cle)] });
+  }
+
+  const api = { renommerPostes, ajusterReferences, lireExport, importer, reclasser, calculer, proposer, lireZip, postes, marchand, lireTR, estTR };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.Moteur = api;
 })(typeof window !== 'undefined' ? window : globalThis);
