@@ -448,6 +448,34 @@
     const dernier = coussinL[coussinL.length - 1] || null;
     const coussin = { seuil: seuilCoussin, liste: coussinL.slice(-12), dernier, sous_seuil: !!dernier && dernier.solde < seuilCoussin, baisse: !!dernier && dernier.ecart !== null && dernier.ecart < 0 };
 
+    // ---------- Répartition réelle (repère 50 / 30 / 20) ----------
+    // Moyenne des mois terminés (12 au plus), sur ce qui est vraiment passé sur le compte.
+    // Obligations : charges fixes, charges variables, enveloppes de santé et d'entretien.
+    // Plaisir : loisirs, autres enveloppes, hors budget (voyages). Les revenus exceptionnels ne comptent pas.
+    const groupeDe = (o) => (o.bloc === 'Charges fixes' || o.bloc === 'Charges variables' ? 'obligations'
+      : o.bloc === 'Loisirs' || o.bloc === 'Hors budget' ? 'plaisir'
+      : o.bloc === 'Enveloppes' ? (/sant|entretien/i.test(o.poste) ? 'obligations' : 'plaisir') : null);
+    const depGroupe = {};
+    ops.forEach((o) => { const g = groupeDe(o); if (g) { const k = o.mois + '|' + g; depGroupe[k] = (depGroupe[k] || 0) - Number(o.montant); } });
+    const repartition = (liste) => {
+      const moy = (f) => (liste.length ? r2(somme(liste.map(f)) / liste.length) : 0);
+      const x = { mois: liste, revenus: moy((m) => revenusDe(m, false).total), salaire: moy((m) => revenusDe(m, false).sal),
+        obligations: moy((m) => depGroupe[m + '|obligations'] || 0), plaisir: moy((m) => depGroupe[m + '|plaisir'] || 0) };
+      x.depenses = r2(x.obligations + x.plaisir); x.epargne = r2(x.revenus - x.depenses);
+      const pr = (y) => (x.revenus > 0 ? y / x.revenus : 0);
+      x.pct = { obligations: pr(x.obligations), plaisir: pr(x.plaisir), epargne: pr(x.epargne) };
+      return x;
+    };
+    const moisReels = [];
+    if (ops.length) for (let m = mt; m >= premierOps && moisReels.length < 12; m = moisDecale(m, -1)) moisReels.unshift(m);
+    const reel = repartition(moisReels);
+    const dernierReel = moisReels.length ? repartition([mt]) : null;
+    // Base des projections : la moyenne réelle, ou le budget de référence tant qu'aucun mois n'est terminé
+    const base = reel.mois.length
+      ? { revenus: reel.revenus, depenses: reel.depenses, epargne: reel.epargne, plaisir: reel.plaisir, salaire: reel.salaire > 0 ? reel.salaire : ref('rev_sal'), reel: true }
+      : { revenus: r2(ref('rev_sal') + ref('rev_caf') + ref('rev_al')), depenses: r2(fixes + variables + envMois + loisirsNormal), epargne: r2(partagerNormal - loisirsNormal), plaisir: r2(loisirsNormal), salaire: ref('rev_sal'), reel: false };
+    base.pct_epargne = base.revenus > 0 ? base.epargne / base.revenus : 0;
+
     const vue = {
       mc, mois_mc: moisLabel(mc), auj, nbJours, revenus: revMc.total,
       prevu: { loisirs: r2(budgetLoisirs(revMc.total)), variables, env: r2(envMois), fixes },
@@ -457,7 +485,8 @@
       coussin,
       caisse, nc, fixKo: fixesL.filter((l) => !l.ok).map((l) => l.poste),
       normal: { revenus: r2(ref('rev_sal') + ref('rev_caf') + ref('rev_al')), fixes, variables, env: r2(envMois), loisirs: r2(loisirsNormal), epargne: r2(partagerNormal - loisirsNormal) },
-      patrimoine: patrimoine(bundle, mc, fixes + variables + envMois + loisirsNormal)
+      patrimoine: patrimoine(bundle, mc, fixes + variables + envMois + loisirsNormal),
+      reel, dernier: dernierReel, base
     };
 
     // Les montants calculés de la page Règles suivent les montants de référence
@@ -532,6 +561,39 @@
       livret_taux: P.livret && P.livret.taux ? Number(P.livret.taux) : null,
       matelas: depMois > 0 ? Math.round((livret || 0) / depMois * 10) / 10 : 0
     };
+  }
+
+  // ---------- Projections (questions facultatives : ce qui manque prend une hypothèse) ----------
+  const val = (x) => (x === '' || x === null || x === undefined || !isFinite(Number(x)) ? null : Number(x));
+  const choix = (x, def) => { const v = val(x); return v === null ? { v: def, hyp: true } : { v, hyp: false }; };
+  const moisEntre = (deK, aK) => (Number(aK.slice(0, 4)) - Number(deK.slice(0, 4))) * 12 + Number(aK.slice(5, 7)) - Number(deK.slice(5, 7));
+  // calc : le résultat de calculer(). Base : la moyenne réelle des mois terminés.
+  function projeter(type, rep, calc) {
+    const v = calc.vue, P = v.base, S = Math.max(0, Number(P.salaire) || 0), livret = v.patrimoine.livret;
+    const reserveDe = (deficit) => (deficit > 0 && livret ? Math.round(livret / deficit * 10) / 10 : null);
+    const out = { hyp: {}, reserve: P.depenses > 0 && livret ? Math.round(livret / P.depenses * 10) / 10 : null };
+    const note = (k, o) => { out.hyp[k] = o.hyp; return o.v; };
+    if (type === 'conges') {
+      const jours = note('jours', choix(rep.jours, 5));
+      const mois = rep.mois && /^\d{4}-\d\d$/.test(rep.mois) ? rep.mois : moisDecale(v.mc, 4); out.hyp.mois = !rep.mois;
+      const parJour = note('par_jour', choix(rep.par_jour, r2(S / 21.67)));
+      const total = r2(jours * parJour), n = Math.max(1, moisEntre(v.mc, mois)), parMois = r2(total / n);
+      out.res = { jours, mois, mois_lib: moisLabel(mois), par_jour: parJour, total, n, par_mois: parMois,
+        epargne_avant: P.pct_epargne, epargne_pendant: P.revenus > 0 ? (P.epargne - parMois) / P.revenus : 0, sans_rien: r2(P.epargne - total) };
+    } else if (type === 'baisse') {
+      const nouveau = note('salaire', choix(rep.salaire, r2(S * 0.8)));
+      const autres = P.revenus - S, rev = r2(nouveau + autres), ep = r2(rev - P.depenses);
+      out.res = { salaire: nouveau, revenus: rev, epargne: ep, epargne_pct: rev > 0 ? ep / rev : 0, avant_pct: P.pct_epargne,
+        a_reduire: ep < 0 ? r2(-ep) : 0, reduc_plaisir: ep < 0 && P.plaisir > 0 ? Math.min(1, -ep / P.plaisir) : 0,
+        reserve: reserveDe(-ep), reserve_sans_salaire: reserveDe(r2(P.depenses - autres)) };
+    } else if (type === 'projet') {
+      const montantP = note('montant', choix(rep.montant, 1000));
+      const deja = note('deja', choix(rep.deja, 0));
+      const mois = rep.mois && /^\d{4}-\d\d$/.test(rep.mois) ? rep.mois : moisDecale(v.mc, 12); out.hyp.mois = !rep.mois;
+      const n = Math.max(1, moisEntre(v.mc, mois)), parMois = r2(Math.max(0, montantP - deja) / n);
+      out.res = { montant: montantP, deja, mois, mois_lib: moisLabel(mois), n, par_mois: parMois, pct: P.revenus > 0 ? parMois / P.revenus : 0, epargne_reste: r2(P.epargne - parMois) };
+    }
+    return out;
   }
 
   // ---------- Export Trade Republic (CSV) ----------
@@ -641,6 +703,6 @@
     return Object.assign({}, bundle, { references: refs, ajustements: [...faits, ...aFaire.map((a) => a.cle)] });
   }
 
-  const api = { renommerPostes, ajusterReferences, lireExport, importer, reclasser, calculer, proposer, lireZip, postes, marchand, lireTR, estTR };
+  const api = { renommerPostes, ajusterReferences, lireExport, importer, reclasser, calculer, projeter, moisLabel, proposer, lireZip, postes, marchand, lireTR, estTR };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.Moteur = api;
 })(typeof window !== 'undefined' ? window : globalThis);

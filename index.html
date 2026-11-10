@@ -80,6 +80,9 @@ button.v-ligne:active, .v-ligne[role="button"]:active, summary.v-ligne:active { 
 .v-val { text-align: right; white-space: nowrap; }
 .v-val small { display: block; color: var(--fg2); font-size: 13px; }
 .v-gris { color: var(--fg2); }
+.v-hyp { font: 600 11px var(--sf); color: var(--blue); background: color-mix(in srgb, var(--blue) 12%, transparent); padding: 2px 7px; border-radius: 999px; margin-left: 6px; vertical-align: 1px; white-space: nowrap; }
+.v-champ { font: inherit; font-size: 17px; width: 104px; flex: none; text-align: right; padding: 6px 8px; border: 0; border-radius: 8px; background: var(--fill); color: var(--fg); }
+.v-champ::placeholder { color: var(--fg3); }
 .v-chev { flex: none; color: var(--fg3); }
 details > summary { list-style: none; } details > summary::-webkit-details-marker { display: none; }
 details[open] > summary .v-chev { transform: rotate(90deg); }
@@ -246,6 +249,7 @@ select.v-puce { -webkit-appearance: none; appearance: none; padding-right: 13px;
       <div class="v-carte" data-draw="v_pat"></div>
       <div data-draw="v_comptes"></div>
       <div data-draw="v_coussin"></div>
+      <div data-draw="v_repere"></div>
     </section>
 
     <section class="bm-page" id="donnees" role="tabpanel" aria-labelledby="t-donnees" hidden>

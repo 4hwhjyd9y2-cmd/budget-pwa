@@ -28,6 +28,8 @@
 
   // ---------- Icônes au trait (24 × 24) ----------
   const SVG_IC = {
+    cible: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>',
+    boussole: '<circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2 5-5 2 2-5Z"/>',
     resto: '<path d="M7 3v8M5 3v4a2 2 0 0 0 4 0V3M7 11v10M17 3c-2 1-3 3-3 6v3h3v9"/>',
     vetement: '<path d="M8 3 4 6l2 4 2-1v12h8V9l2 1 2-4-4-3a4 4 0 0 1-8 0Z"/>',
     tabac: '<path d="M3 15h13v3H3zM19 15v3M21 15v3M17 11c0-2 2-2 2-4s-2-2-2-4"/>',
@@ -370,6 +372,108 @@
     out.push(el('p', 'v-note', 'Le Livret A est ta vraie réserve ; les espèces Trade Republic, venues du prêt, n’y sont pas comptées. Le compte courant montre ce qui reste quand le mois se termine.'));
     c.replaceChildren(...out);
   });
+
+  // Repère 50 / 30 / 20 : la répartition réelle des mois terminés, en moyenne ou sur le mois dernier
+  const pc = (x) => (x < 0 ? '−' : '') + sp(new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 1, minimumFractionDigits: 1 }).format(Math.abs(x * 100))) + ' %';
+  const pc0 = (x) => { const n = Math.round(x * 100); return (n < 0 ? '−' : '') + Math.abs(n) + ' %'; };
+  const note = (t) => el('p', 'v-note', t);
+  const M = window.Moteur;
+  let periodeRep = 'moy';
+  dash.draw('v_repere', (c) => {
+    const v = V(), out = [section('Repère 50 / 30 / 20')];
+    if (!v.reel.mois.length) out.push(note('Pas encore de mois terminé : ta répartition s’affichera après ton premier mois complet.'));
+    else {
+      const seg = el('div', 'v-segment'); seg.setAttribute('role', 'group');
+      [['moy', 'Moyenne ' + v.reel.mois.length + ' mois'], ['der', 'Mois dernier']].forEach(([id, t]) => { const b = el('button', '', t); b.type = 'button'; b.setAttribute('aria-pressed', String(periodeRep === id)); b.onclick = () => { periodeRep = id; dash.draw('v_repere'); }; seg.append(b); });
+      out.push(seg);
+      const Re = periodeRep === 'der' ? v.dernier : v.reel;
+      const pts = (x) => String(Math.round(Math.abs(x) * 10) / 10).replace('.', ',') + (Math.abs(x) >= 2 ? ' pts' : ' pt');
+      out.push(liste([['Obligations', 'maison', 'var(--blue)', Re.pct.obligations, Re.obligations, 0.5, false],
+        ['Plaisir', 'resto', 'var(--indigo)', Re.pct.plaisir, Re.plaisir, 0.3, false],
+        ['Épargne', 'cible', 'var(--green)', Re.pct.epargne, Re.epargne, 0.2, true]].map(([n, ic, col, p, e, cible, auDessus]) => {
+        const ec = (p - cible) * 100, bon = auDessus ? ec >= -0.05 : ec <= 0.05;
+        const r = ligne({ ic, ton: col, titre: n, sous: eur(e) + ' · repère ' + pc0(cible), apres: barre(Math.max(0, p), bon ? col : 'var(--orange)', cible), val: pc(p) });
+        const ecs = el('small', bon ? 'pos' : 'orange', (ec >= 0 ? '+' : '−') + pts(ec)); ecs.style.fontWeight = '600'; r.querySelector('.v-val').append(ecs);
+        return r;
+      })));
+      const per = periodeRep === 'der' ? cap(M.moisLabel(Re.mois[0])) : 'En moyenne de ' + M.moisLabel(Re.mois[0]) + ' à ' + M.moisLabel(Re.mois[Re.mois.length - 1]);
+      out.push(note(per + ', sur ' + eur(Re.revenus) + ' de revenus réels par mois (hors revenus exceptionnels). Obligations : charges fixes, charges variables, santé, entretien. Plaisir : loisirs, cadeaux, achats divers, voyages. Épargne : ce qui reste. Le trait sur chaque jauge marque le repère : au plus 50 %, au plus 30 %, au moins 20 %.'));
+    }
+    out.push(section('Et si…'));
+    out.push(liste([ligne({ ic: 'boussole', ton: 'var(--teal)', titre: 'Projections', sous: 'Congés sans solde, baisse de salaire, projet', chev: true, clic: () => pageProj() })]));
+    c.replaceChildren(...out);
+  });
+
+  // Projections : aucune question n'est obligatoire, une réponse vide est remplacée par une hypothèse (en bleu)
+  const SCEN = [['conges', 'Congés'], ['baisse', 'Baisse de salaire'], ['projet', 'Projet']];
+  const QUESTIONS = {
+    conges: [['jours', 'Jours sans solde', 'jours'], ['mois', 'Quel mois ?', 'mois'], ['par_jour', 'Perte par jour', '€']],
+    baisse: [['salaire', 'Nouveau salaire par mois', '€']],
+    projet: [['montant', 'Combien coûte le projet ?', '€'], ['mois', 'Pour quand ?', 'mois'], ['deja', 'Déjà mis de côté', '€']]
+  };
+  let scen = 'conges';
+  const repProj = { conges: {}, baisse: {}, projet: {} };
+  try { const x = JSON.parse(localStorage.getItem('budget-proj') || 'null'); if (x) SCEN.forEach(([k]) => { if (x[k] && typeof x[k] === 'object') repProj[k] = x[k]; }); } catch (e) {}
+  const resultatProj = (zone) => {
+    const calc = A.calc(), b = calc.vue.base, r = M.projeter(scen, repProj[scen], calc), x = r.res, H = r.hyp, out = [], hyps = [];
+    const lh = (k, t) => { if (H[k]) hyps.push(t); };
+    const mois1 = (n) => String(n).replace('.', ',') + ' mois';
+    const carteGros = (lab, val, sous, cls) => { const k = el('div', 'v-carte'); k.append(el('div', 'v-gris', lab)); k.append(el('div', 'v-gros' + (cls ? ' ' + cls : ''), val)); if (sous) k.append(el('div', 'v-gris', sous)); return k; };
+    const salTxt = (b.reel ? 'salaire moyen' : 'salaire de référence') + ' de ' + eur(b.salaire);
+    if (scen === 'conges') {
+      lh('jours', x.jours + ' jours'); lh('mois', 'en ' + x.mois_lib); lh('par_jour', eur(x.par_jour) + ' par jour (' + salTxt + ' ÷ 21,7 jours travaillés)');
+      out.push(carteGros('À mettre de côté avant ' + x.mois_lib, eur(x.total), 'soit ' + eur(x.par_mois) + ' par mois pendant ' + x.n + ' mois'));
+      const l = [ligne({ titre: 'Ton épargne ces mois-là', val: pc0(x.epargne_avant) + ' → ' + pc0(x.epargne_pendant), valCls: x.epargne_pendant < 0 ? 'neg' : '' }),
+        ligne({ titre: 'Sans rien mettre de côté', sous: cap(x.mois_lib) + ' finirait à', val: eur(x.sans_rien), valCls: x.sans_rien < 0 ? 'neg' : '' })];
+      if (r.reserve !== null) l.push(ligne({ titre: 'Ton Livret A couvre', val: mois1(r.reserve) }));
+      out.push(liste(l, true));
+    } else if (scen === 'baisse') {
+      lh('salaire', eur(x.salaire) + ' (20 % de moins que ton ' + salTxt + ')');
+      out.push(carteGros('Ton épargne passerait de ' + pc0(x.avant_pct) + ' à', pc0(x.epargne_pct), eur(x.epargne) + ' par mois', x.epargne < 0 ? 'neg' : ''));
+      const l = [ligne({ titre: 'Revenus du mois', val: eur(x.revenus) })];
+      if (x.a_reduire > 0) {
+        l.push(ligne({ titre: 'À réduire chaque mois', val: eur(x.a_reduire), valCls: 'neg' }));
+        l.push(ligne({ titre: 'Soit sur tes dépenses plaisir', val: '−' + pc0(x.reduc_plaisir) }));
+        if (x.reserve) l.push(ligne({ titre: 'Sans rien réduire, ton Livret A tiendrait', val: mois1(x.reserve) }));
+      }
+      if (x.reserve_sans_salaire) l.push(ligne({ titre: 'Sans aucun salaire, ton Livret A tiendrait', val: mois1(x.reserve_sans_salaire) }));
+      out.push(liste(l, true));
+    } else {
+      lh('montant', eur(x.montant)); lh('mois', 'pour ' + x.mois_lib); lh('deja', 'rien de côté pour l’instant');
+      out.push(carteGros('À mettre de côté chaque mois', eur(x.par_mois), pc(x.pct) + ' de tes revenus, pendant ' + x.n + ' mois'));
+      out.push(liste([ligne({ titre: 'Ton épargne moyenne', val: eur(b.epargne) + ' /mois' }),
+        ligne({ titre: x.epargne_reste >= 0 ? 'Il te resterait à épargner' : 'Il manquerait chaque mois', val: eur(Math.abs(x.epargne_reste)), valCls: x.epargne_reste < 0 ? 'neg' : '' })], true));
+    }
+    if (hyps.length) { const p = el('p', 'v-note'); p.append(el('span', 'v-hyp', 'hypothèses'), ' ' + hyps.join(' · ') + '.'); p.style.margin = '-4px 4px 12px'; out.unshift(p); }
+    out.push(note((b.reel ? 'Calculs à partir de ta moyenne réelle (' + calc.vue.reel.mois.length + ' mois, hors revenus exceptionnels) : ' : 'Calculs à partir de ton budget de référence : ') + eur(b.revenus) + ' de revenus, ' + eur(b.depenses) + ' de dépenses et ' + eur(b.epargne) + ' d’épargne par mois.'));
+    zone.replaceChildren(...out);
+  };
+  const corpsProj = () => {
+    const out = [note('Réponds à ce que tu sais : le reste est remplacé par une hypothèse, marquée en bleu.')];
+    out[0].style.margin = '0 4px 14px';
+    const seg = el('div', 'v-segment'); seg.setAttribute('role', 'group');
+    SCEN.forEach(([k, t]) => { const b = el('button', '', t); b.type = 'button'; b.setAttribute('aria-pressed', String(scen === k)); b.onclick = () => { scen = k; dash.draw('v_page'); }; seg.append(b); });
+    out.push(seg);
+    const zone = el('div');
+    out.push(liste(QUESTIONS[scen].map(([k, lib, unite]) => {
+      const row = el('label', 'v-ligne'), t = el('div', 'v-txt'); t.append(el('b', '', lib));
+      const inp = el('input', 'v-champ'), estMois = unite === 'mois';
+      if (estMois) { inp.type = 'month'; inp.style.width = '150px'; inp.value = repProj[scen][k] || ''; }
+      else { inp.setAttribute('inputmode', 'decimal'); inp.placeholder = 'Je ne sais pas'; inp.value = repProj[scen][k] === undefined || repProj[scen][k] === '' ? '' : String(repProj[scen][k]).replace('.', ','); }
+      inp.oninput = () => {
+        const n = estMois ? inp.value : (inp.value.trim() === '' ? '' : nombre(inp.value));
+        repProj[scen][k] = n === '' || (typeof n === 'number' && !isFinite(n)) ? '' : n;
+        try { localStorage.setItem('budget-proj', JSON.stringify(repProj)); } catch (e) {}
+        resultatProj(zone);
+      };
+      const u = el('span', 'v-gris', estMois ? '' : unite); u.style.cssText = 'font-size:15px;min-width:28px';
+      row.append(t, inp, u); return row;
+    }), true));
+    out.push(zone);
+    resultatProj(zone);
+    return out;
+  };
+  const pageProj = () => pousser({ retour: 'Patrimoine', titre: () => 'Projections', corps: corpsProj });
 
   // Placements : feuille de saisie (une saisie invalide garde la feuille ouverte, avec l'erreur)
   let enCours = null;

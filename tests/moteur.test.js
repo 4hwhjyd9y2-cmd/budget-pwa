@@ -52,6 +52,7 @@
     suivi_depuis: '2026-03', soldes: {}, export: '2026-06-15'
   }, plus || {});
   const c = M.calculer(donnees());
+  const cPatP = () => M.calculer(donnees({ patrimoine: { livret: { valeur: 3000, date: '2026-05-01' } } }));
   const v = c.vue;
   const syn = (id) => c.datasets.synthese.find((s) => s.id === id).valeur;
   const lig = (l, id) => l.find((x) => x.id === id);
@@ -130,6 +131,47 @@
   proche('plafonds des loisirs = budget loisirs', somme(v.postes.filter((l) => l.bloc === 'Loisirs').map((l) => l.seuil)), v.prevu.loisirs);
   const attendu = 2220 - (brut('2026-05', 'Loyer') + brut('2026-05', 'Téléphone')) - (brut('2026-05', 'Courses') + brut('2026-05', 'Restos, bars et sorties') + brut('2026-05', 'Vêtements')) - 100 - 100;
   proche('à virer : recalcul depuis les opérations brutes', v.epargne.a_virer, attendu);
+
+  // ---------- Repère 50 / 30 / 20 ----------
+  dans('Repère 50 / 30 / 20 (réel)');
+  egal('3 mois terminés dans la moyenne', v.reel.mois.length, 3);
+  proche('revenus réels moyens', v.reel.revenus, 2086.67);
+  proche('obligations : fixes, variables, santé', v.reel.obligations, 936.67);
+  proche('plaisir : loisirs et cadeaux', v.reel.plaisir, 403.33);
+  proche('épargne = revenus − dépenses', v.reel.epargne, 746.67);
+  proche('les trois parts font 100 %', v.reel.pct.obligations + v.reel.pct.plaisir + v.reel.pct.epargne, 1);
+  proche('mois dernier : revenus', v.dernier.revenus, 2220);
+  proche('mois dernier : obligations', v.dernier.obligations, 970);
+  proche('mois dernier : plaisir', v.dernier.plaisir, 310);
+  proche('mois dernier : épargne', v.dernier.epargne, 940);
+  const cExc = M.calculer(donnees({ operations: operations.concat([op('2026-05-12', 'VIR SEPA CADEAU FICTIF', 500, 'Exceptionnel', 'Cadeaux reçus')]) }));
+  proche('un revenu exceptionnel ne change pas la moyenne', cExc.vue.reel.revenus, 2086.67);
+  const cVoy = M.calculer(donnees({ operations: operations.concat([op('2026-05-13', 'CARTE HOTEL FICTIF CB*0000', -300, 'Hors budget', 'Voyages')]) }));
+  proche('un voyage hors budget compte en plaisir', cVoy.vue.dernier.plaisir, 610);
+  const cNeuf = M.calculer(donnees({ operations: operations.filter((o) => o.date >= '2026-05-28') }));
+  egal('sans mois terminé : pas de répartition', cNeuf.vue.reel.mois.length, 0);
+  egal('sans mois terminé : base = budget de référence', cNeuf.vue.base.reel, false);
+  proche('sans mois terminé : épargne de référence', cNeuf.vue.base.epargne, 600);
+
+  // ---------- Projections ----------
+  dans('Projections');
+  proche('base : épargne réelle moyenne', v.base.epargne, v.reel.epargne);
+  proche('base : salaire réel moyen', v.base.salaire, 2066.67);
+  const projet = M.projeter('projet', { montant: 1200, mois: '2027-06' }, c);
+  egal('projet : 12 mois avant l’échéance', projet.res.n, 12);
+  proche('projet : à mettre de côté par mois', projet.res.par_mois, 100);
+  proche('projet : épargne restante', projet.res.epargne_reste, 646.67);
+  egal('projet : réponse donnée, pas d’hypothèse', projet.hyp.montant, false);
+  egal('projet sans réponse : hypothèse signalée', M.projeter('projet', {}, c).hyp.montant, true);
+  const baisse = M.projeter('baisse', {}, c);
+  proche('baisse sans réponse : 80 % du salaire réel moyen', baisse.res.salaire, 1653.34);
+  proche('baisse : épargne = nouveaux revenus − dépenses réelles', baisse.res.epargne, baisse.res.revenus - v.reel.depenses);
+  const chute = M.projeter('baisse', { salaire: 1000 }, cPatP());
+  proche('forte baisse : à réduire chaque mois', chute.res.a_reduire, 320);
+  proche('forte baisse : durée couverte par le livret', chute.res.reserve, 12.2);
+  const conges = M.projeter('conges', { jours: 10, mois: '2026-10', par_jour: 100 }, c);
+  proche('congés : total à mettre de côté', conges.res.total, 1000);
+  proche('congés : par mois sur 4 mois', conges.res.par_mois, 250);
 
   // ---------- Patrimoine ----------
   dans('Patrimoine');
