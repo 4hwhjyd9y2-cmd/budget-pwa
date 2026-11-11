@@ -46,11 +46,12 @@
     R('cadeaux', 'Enveloppe annuelle', 'Cadeaux', 600), R('sante', 'Enveloppe annuelle', 'Santé', 600),
     R('part_loisirs', 'Calcul', 'Part des loisirs', 0)
   ];
-  const donnees = (plus) => Object.assign({
+  // Données comme sur un téléphone déjà passé au mois civil : la migration rattache les envois du 1er au 10 au mois d'avant
+  const donnees = (plus) => M.migrerEpargneCalendaire(Object.assign({
     version: 2, references, operations, regles: [], regles_perso: [],
     regles_auto: [{ motif: 'EMPLOYEUR FICTIF', sens: 'credit', bloc: 'Revenus', poste: 'Salaire' }],
     suivi_depuis: '2026-03', soldes: {}, export: '2026-06-15'
-  }, plus || {});
+  }, plus || {}));
   const c = M.calculer(donnees());
   const cPatP = () => M.calculer(donnees({ patrimoine: { livret: { valeur: 3000, date: '2026-05-01' } } }));
   const v = c.vue;
@@ -238,6 +239,46 @@
   proche('charge fixe : dernier montant passé', prop.lignes.find((l) => l.id === 'loyer').propose, 600);
   egal('charge fixe inchangée : pas cochée', prop.lignes.find((l) => l.id === 'loyer').coche, false);
   proche('enveloppe : cumul des 12 derniers mois', prop.lignes.find((l) => l.id === 'cadeaux').propose, 350);
+
+  dans('Épargne par mois (mois civil)');
+  const em = (vv, k) => vv.epargne_mois.find((x) => x.cle === k);
+  egal('liste : juin prévu, puis mai, avril, mars', v.epargne_mois.map((x) => x.cle + ' ' + x.etat).join(', '), '2026-06 prevu, 2026-05 termine, 2026-04 termine, 2026-03 termine');
+  proche('mai : à épargner (avec le report)', em(v, '2026-05').a_epargner, 780);
+  proche('mai : déjà viré (envoi du 5 juin rattaché par la migration)', em(v, '2026-05').vire, 400);
+  proche('mai : reste à virer', em(v, '2026-05').reste, 380);
+  proche('mai : la liste dit la même chose que le virement du mois terminé', em(v, '2026-05').reste, v.epargne.reste);
+  proche('à virer aujourd’hui = somme des restes des mois terminés', v.a_virer, v.epargne_mois.filter((x) => x.etat === 'termine').reduce((s, x) => s + x.reste, 0));
+  egal('le mois en cours ne compte pas dans « à virer aujourd’hui »', v.epargne_mois[0].etat, 'prevu');
+  proche('juin prévu = fin de mois prévue, report et trou de la caisse compris', v.epargne_mois[0].a_epargner, Math.round((v.fin + (v.epargne.laisse ? 0 : -v.epargne.manque) + Math.min(0, v.caisse.valeur)) * 100) / 100);
+  const migreE = M.migrerEpargneCalendaire(Object.assign({}, donnees(), { migrations: [] , operations }));
+  egal('migration : l’envoi du 5 juin est rattaché à mai', migreE.operations.find((o) => o.date === '2026-06-05').mois_epargne, '2026-05');
+  egal('migration : une seule fois', M.migrerEpargneCalendaire(migreE), migreE);
+  const sansMig = Object.assign({}, donnees(), { operations, migrations: ['epargne-calendaire'] });
+  proche('sans rattachement, un envoi compte pour le mois civil de sa date', em(M.calculer(sansMig).vue, '2026-06').vire, 400);
+  proche('sans rattachement, mai ne compte que son propre envoi (4 mai)', em(M.calculer(sansMig).vue, '2026-05').vire, 500);
+  const rattache = M.reclasser(sansMig, operations.find((o) => o.date === '2026-06-05').id, 'Interne', EPARGNE, false, '2026-05');
+  proche('rattaché à mai à la main : il compte pour mai', em(M.calculer(rattache).vue, '2026-05').vire, 900);
+  proche('rattaché à mai : il ne compte plus pour juin', em(M.calculer(rattache).vue, '2026-06').vire, 0);
+  egal('reclasser hors épargne : le rattachement disparaît', M.reclasser(rattache, operations.find((o) => o.date === '2026-06-05').id, 'Loisirs', 'Vêtements', false).operations.find((o) => o.date === '2026-06-05').mois_epargne, undefined);
+  const avecRetrait = donnees({ operations: operations.concat([op('2026-05-25', 'VIR DEPUIS LIVRET A', 1000, 'Interne', EPARGNE)]) });
+  proche('un retrait ne réduit pas « déjà viré »', em(M.calculer(avecRetrait).vue, '2026-05').vire, 400);
+  proche('un retrait est montré à part', em(M.calculer(avecRetrait).vue, '2026-05').retraits, 1000);
+  proche('un retrait ne crée pas de reste à virer', em(M.calculer(avecRetrait).vue, '2026-05').reste, 380);
+  proche('rattachement : le solde du Livret A ne change pas', M.calculer(Object.assign({}, rattache, { patrimoine: { livret: { valeur: 3000, date: '2026-05-01' } } })).vue.patrimoine.livret, M.calculer(Object.assign({}, sansMig, { patrimoine: { livret: { valeur: 3000, date: '2026-05-01' } } })).vue.patrimoine.livret);
+
+  dans('Affichage : euros entiers et noms courts');
+  egal('entiers : le total est l’arrondi de la somme', M.entiers([293.6, 394.6]).join('+'), '294+394');
+  egal('entiers : la somme des lignes vaut le total', somme(M.entiers([10.4, 20.4, 30.4, 0.4])), 62);
+  egal('entiers : des montants ronds ne bougent pas', M.entiers([600, 20, 300]).join(' '), '600 20 300');
+  egal('entiers : montants négatifs (un calcul avec des moins)', somme(M.entiers([2020.4, -620.3, -300.3, -100.4])), 999);
+  egal('entiers : liste vide', M.entiers([]).length, 0);
+  egal('entiers : dépensé des postes du mois = arrondi du total', somme(M.entiers(v.postes.map((r) => Number(r.depense)))), Math.round(v.depense.loisirs + v.depense.variables));
+  egal('entiers : plafonds des postes du mois = arrondi du total', somme(M.entiers(v.postes.map((r) => Number(r.seuil)))), Math.round(v.prevu.loisirs + v.prevu.variables));
+  egal('nom lisible : carte avec date et numéro', M.nomLisible('CARTE 03/06/26 BOULANGERIE FICTIVE CB*1234'), 'Boulangerie Fictive');
+  egal('nom lisible : carte sans date', M.nomLisible('CARTE BISTROT FICTIF'), 'Bistrot Fictif');
+  egal('nom lisible : prélèvement', M.nomLisible('PRLV SEPA OPERATEUR FICTIF'), 'Operateur Fictif');
+  egal('nom court : des mots entiers, 20 caractères au plus', M.nomCourt('PRLV SEPA ASSURANCE FICTIVE MANAGEMENT EUROPE'), 'Assurance Fictive');
+  egal('nom court : un seul mot trop long est tronqué', M.nomCourt('CARTE 03/06/26 ABCDEFGHIJKLMNOPQRSTUVWXYZ CB*1234').length, 20);
 
   // ---------- Bilan ----------
   const ko = resultats.filter((r) => !r.ok);

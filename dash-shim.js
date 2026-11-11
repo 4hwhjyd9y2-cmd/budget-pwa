@@ -22,7 +22,7 @@
   // Postes renommés à la demande : appliqué une fois aux données de l'appareil (et à une sauvegarde réimportée)
   const RENOMMAGES = [['Tabac', 'CE']];
   const AJUSTEMENTS = [{ cle: 'sport-30', id: 'sport', montant: 30, note: 'Abonnement mensuel, prélevé en début de mois (deux prélèvements en décembre 2026)' }];
-  if (bundle) { const b = M.ajusterReferences(M.renommerPostes(bundle, RENOMMAGES), AJUSTEMENTS); if (b !== bundle) { bundle = b; localStorage.setItem(KEY, JSON.stringify(bundle)); } }
+  if (bundle) { const b = M.migrerEpargneCalendaire(M.ajusterReferences(M.renommerPostes(bundle, RENOMMAGES), AJUSTEMENTS)); if (b !== bundle) { bundle = b; localStorage.setItem(KEY, JSON.stringify(bundle)); } }
 
   // Message en haut de page ; `annuler` ajoute un bouton pour revenir en arrière
   // Le message disparaît seul après quelques secondes (plus longtemps s'il propose d'annuler)
@@ -241,15 +241,20 @@
 
   // Reclassement d'une opération : toucher une ligne de l'onglet Données
   const dlg = dialogue('<h2>Changer le poste</h2><p id="dlg-op"></p><select id="dlg-poste" aria-label="Poste"></select>' +
+    '<div id="dlg-mois-bloc" style="display:grid;gap:8px"><label for="dlg-mois">Compte pour</label><select id="dlg-mois"></select></div>' +
     '<label><input type="checkbox" id="dlg-tout"> <span>Toujours classer ce marchand ici</span></label>' + boutons('Enregistrer'), () => {
     if (opId === null) return;
     const [bloc, poste] = $('dlg-poste').value.split('|');
-    const b = M.reclasser(bundle, opId, bloc, poste, $('dlg-tout').checked);
+    const mEp = poste === M.EPARGNE ? $('dlg-mois').value : '';
+    const b = M.reclasser(bundle, opId, bloc, poste, $('dlg-tout').checked, mEp);
+    if (mEp) { changer(b, 'Virement compté pour ' + MOIS_NOMS[Number(mEp.slice(5, 7)) - 1] + '.'); return; }
     // Plus rien à classer : on retire le filtre « Non classé » pour ne pas laisser un tableau vide
     const st = window.bmSt; if (st && st.bloc === 'Non classé' && !b.operations.some((o) => o.bloc === 'Non classé')) st.bloc = '';
     changer(b, 'Opération classée en « ' + poste + ' ».');
   });
   let opId = null;
+  const MOIS_NOMS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
+  $('dlg-poste').addEventListener('change', () => { $('dlg-mois-bloc').hidden = $('dlg-poste').value.split('|')[1] !== M.EPARGNE; });
   document.addEventListener('click', (e) => {
     const tr = e.target.closest('[data-draw="tops"] tr, [data-op]'); if (!tr || !bundle) return;
     const o = bundle.operations.find((x) => String(x.id) === (tr.dataset.op || tr.dataset.key)); if (!o) return;
@@ -258,6 +263,12 @@
     const sel = $('dlg-poste'); sel.replaceChildren();
     const P = M.postes(bundle);
     Object.keys(P).forEach((b) => { const g = document.createElement('optgroup'); g.label = b; P[b].forEach((p) => { const op = new Option(p, b + '|' + p); if (o.bloc === b && o.poste === p) op.selected = true; g.append(op); }); sel.append(g); });
+    // Mois proposés : automatique (le mois de sa date), puis ceux de l'onglet Épargne
+    const ms = $('dlg-mois'), lm = ((calc && calc.vue.epargne_mois) || []).map((x) => x.cle), nomM = (k) => MOIS_NOMS[Number(k.slice(5, 7)) - 1];
+    ms.replaceChildren(new Option('Automatique : ' + nomM(o.mois), ''));
+    if (o.mois_epargne && !lm.includes(o.mois_epargne)) lm.push(o.mois_epargne);
+    lm.filter((k) => k !== o.mois || o.mois_epargne === k).forEach((k) => { const x = new Option(nomM(k).charAt(0).toUpperCase() + nomM(k).slice(1), k); if (o.mois_epargne === k) x.selected = true; ms.append(x); });
+    $('dlg-mois-bloc').hidden = o.poste !== M.EPARGNE;
     $('dlg-tout').checked = false;
     $('dlg-tout').parentElement.querySelector('span').textContent = 'Toujours classer « ' + M.marchand(o.libelle) + ' » ici';
     ouvrirDlg(dlg);

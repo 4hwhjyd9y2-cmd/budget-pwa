@@ -1,5 +1,6 @@
-// Écrans de l'appli, dans le style d'une appli iOS : Ce mois-ci, Patrimoine, Opérations, Réglages,
-// pages poussées (mois terminé, réglages détaillés) et feuille « Je veux acheter ». Calculs dans moteur.js (calc.vue).
+// Écrans de l'appli, dans le style d'une appli iOS : Ce mois-ci, Épargne, Patrimoine, Opérations, Réglages,
+// pages poussées (détail d'un groupe, fin de mois, répartition, projections, réglages) et feuille « Je veux acheter ».
+// Un écran = une question et un seul grand chiffre ; le détail s'ouvre en touchant une ligne. Calculs dans moteur.js (calc.vue).
 (function () {
   const A = window.App;
   if (!A || !A.calc()) return;
@@ -84,12 +85,12 @@
   // ---------- Briques : carré d'icône, ligne de liste, titre de section ----------
   const carre = (nom, t) => { const s = el('span', 'v-carre'); s.style.setProperty('--t', t || 'var(--gray)'); s.setAttribute('aria-hidden', 'true'); s.append(dessin(nom, 17)); return s; };
   const chev = () => { const s = el('span', 'v-chev'); s.append(dessin('chev', 14)); return s; };
-  // o : { ic, ton, titre, sous, sousCls, val, valSous, valCls, clic, chev, data, apres }
+  // o : { ic, ton, titre, apres (jauge), sous, sousCls, val, valSous, valCls, clic, chev, data, haut, total, court }
   const ligne = (o) => {
-    const r = el(o.clic ? 'button' : 'div', 'v-ligne'); if (o.clic) { r.type = 'button'; r.onclick = o.clic; }
+    const r = el(o.clic ? 'button' : 'div', 'v-ligne' + (o.haut ? ' haut' : '') + (o.total ? ' total' : '')); if (o.clic) { r.type = 'button'; r.onclick = o.clic; }
     if (o.data) Object.entries(o.data).forEach(([k, v]) => { r.dataset[k] = v; });
     if (o.ic) r.append(carre(o.ic, o.ton));
-    const t = el('div', 'v-txt'); t.append(el('b', '', o.titre)); if (o.apres) t.append(o.apres); if (o.sous) t.append(el('small', o.sousCls || '', o.sous));
+    const t = el('div', 'v-txt'); const b = el('b', '', o.titre); if (o.court) b.dataset.court = '1'; t.append(b); if (o.apres) t.append(o.apres); if (o.sous) t.append(el('small', o.sousCls || '', o.sous));
     r.append(t);
     if (o.val !== undefined && o.val !== null) { const v = el('div', 'v-val' + (o.valCls ? ' ' + o.valCls : ''), o.val); if (o.valSous) v.append(el('small', '', o.valSous)); r.append(v); }
     if (o.chev) r.append(chev());
@@ -115,7 +116,7 @@
   const pageEl = $('v-page'); pageEl.dataset.draw = 'v_page';
   const pousser = (p) => { page = p; dash.draw('v_page'); pageEl.scrollTop = 0; pageEl.classList.add('on'); document.body.style.overflow = 'hidden'; setTimeout(() => $('v-retour').focus({ preventScroll: true }), 50); };
   const fermerPage = () => { pageEl.classList.remove('on'); pageEl.style.transform = ''; document.body.style.overflow = ''; page = null; };
-  dash.draw('v_page', () => { if (!page) return; $('v-retour-txt').textContent = page.retour || 'Retour'; $('v-page-titre').textContent = page.titre(); $('v-page-corps').replaceChildren(...page.corps()); });
+  dash.draw('v_page', () => { if (!page) return; $('v-retour-txt').textContent = page.retour || 'Retour'; $('v-page-titre').textContent = page.titre(); const s = page.sous ? page.sous() : ''; $('v-page-sous').textContent = s; $('v-page-sous').hidden = !s; $('v-page-corps').replaceChildren(...page.corps()); });
   $('v-retour').onclick = fermerPage;
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && page && !document.querySelector('dialog[open]')) fermerPage(); });
   // Retour en glissant depuis le bord gauche, comme sur iPhone
@@ -142,136 +143,158 @@
     $('v-q').value = ''; if (page) fermerPage(); onglet('donnees'); dash.draw('v_ops_filtres'); dash.draw('v_ops');
   };
 
-  // ================= Ce mois-ci =================
+  // ================= Chiffres affichés =================
+  // Des euros entiers, et chaque total est la somme des lignes affichées (Moteur.entiers).
+  const M = window.Moteur;
+  const som = (l) => l.reduce((s, x) => s + x, 0);
+  const note = (t) => el('p', 'v-note', t);
+  const dec1 = (x) => String(Math.round(Number(x) * 10) / 10).replace('.', ',');
+  const pc = (x) => (x < 0 ? '−' : '') + sp(new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 1, minimumFractionDigits: 1 }).format(Math.abs(x * 100))) + ' %';
+  const pc0 = (x) => { const n = Math.round(x * 100); return (n < 0 ? '−' : '') + Math.abs(n) + ' %'; };
+  const GROUPES = { Loisirs: ['Loisirs', 'resto', 'var(--indigo)'], 'Charges variables': ['Charges variables', 'panier', 'var(--blue)'] };
+  const vueMois = () => {
+    const v = V(), groupe = (bloc) => {
+      const l = v.postes.filter((r) => r.bloc === bloc), d = M.entiers(l.map((r) => Number(r.depense))), b = M.entiers(l.map((r) => Number(r.seuil)));
+      return { lignes: l.map((r, i) => ({ r, d: d[i], b: b[i], reste: b[i] - d[i] })), d: som(d), b: som(b), reste: som(b) - som(d) };
+    };
+    const loi = groupe('Loisirs'), vari = groupe('Charges variables');
+    const env = { d: Math.round(v.depense.env), b: Math.round(v.prevu.env) }; env.reste = env.b - env.d;
+    return { loi, vari, env, D: loi.d + vari.d + env.d, B: loi.b + vari.b + env.b, reste: loi.reste + vari.reste + env.reste, jours: v.nbJours - v.auj };
+  };
+  const resteTxt = (r) => (r >= 0 ? { val: eur(r), valSous: 'restants' } : { val: eur(-r), valSous: 'de trop', valCls: 'neg' });
+  const jauge = (d, b, couleur) => barre(b > 0 ? d / b : d > 0 ? 1 : 0, d > b ? 'var(--red)' : couleur);
+  const calcul = (rows) => { const l = liste(rows, true); l.classList.add('v-calc'); return l; };
+  const moins = (x) => (x > 0 ? '−' : x < 0 ? '+' : '') + eur(Math.abs(x));
+
+  // ================= Ce mois-ci : combien je peux encore dépenser =================
   dash.draw('v_mois_titre', (h) => { h.textContent = cap(MOIS_L[Number(V().mc.slice(5, 7)) - 1]); });
-  dash.draw('v_mois_sous', (p) => { const e = A.bundle().export; p.textContent = e ? 'Opérations jusqu’au ' + Number(e.slice(8, 10)) + ' ' + moisCourt(e) : ''; });
+  dash.draw('v_mois_sous', (p) => { const e = A.bundle().export; p.textContent = e ? 'Relevé du ' + Number(e.slice(8, 10)) + ' ' + moisCourt(e) : ''; });
 
   const finAjustee = () => { const v = V(), e = v.epargne; return v.fin - (e.laisse ? 0 : e.manque) + Math.min(0, v.caisse.valeur); };
-  const blocsMois = () => { const v = V(); return [
-    ['Loisirs', v.depense.loisirs, v.prevu.loisirs, 'var(--indigo)'],
-    ['Variables', v.depense.variables, v.prevu.variables, 'var(--blue)'],
-    ['Enveloppes', v.depense.env, v.prevu.env, 'var(--orange)']]; };
   dash.draw('v_heros', (c) => {
-    const v = V(), parts = blocsMois();
-    const dep = parts.reduce((s, p) => s + Math.max(0, p[1]), 0), prev = parts.reduce((s, p) => s + p[2], 0), reste = prev - dep, jours = v.nbJours - v.auj;
-    const out = [el('div', 'lab', reste < 0 ? 'Tu as dépassé ton budget de' : 'Il te reste à dépenser'), el('div', 'montant' + (reste < 0 ? ' neg' : ''), eur(Math.abs(reste)))];
-    if (reste > 0 && jours > 0) { const p = el('div', 'v-gris', 'soit '); p.append(el('b', '', eur(reste / jours) + ' par jour'), ' jusqu’au ' + v.nbJours); p.querySelector('b').style.color = 'var(--fg)'; out.push(p); }
-    // Trois anneaux, façon app Activité
-    const s = svg('svg', { width: 112, height: 112, viewBox: '0 0 112 112', role: 'img', 'aria-label': parts.map((p) => p[0] + ' ' + Math.round(p[2] ? p[1] / p[2] * 100 : 0) + ' %').join(', ') });
-    const g = svg('g', { fill: 'none', 'stroke-width': 13, 'stroke-linecap': 'round', transform: 'rotate(-90 56 56)' });
-    [49, 34, 19].forEach((r, i) => {
-      const [, d, p, t] = parts[i], C = 2 * Math.PI * r, f = p > 0 ? Math.min(1, Math.max(0, d) / p) : 0;
-      g.append(svg('circle', { cx: 56, cy: 56, r, stroke: 'color-mix(in srgb, ' + t + ' 22%, transparent)' }));
-      if (f > 0) g.append(svg('circle', { cx: 56, cy: 56, r, stroke: d > p ? 'var(--red)' : t, 'stroke-dasharray': Math.max(0.01, f * C - (f < 1 ? 0 : 0)) + ' ' + C }));
-    });
-    s.append(g);
-    const leg = el('div', 'v-leg');
-    parts.forEach(([n, d, p, t]) => { const r = el('div'), a = el('span'), i = el('i'); i.style.background = t; a.append(i, n); const b = el('span', d > p ? 'neg' : '', eur(d)); b.append(el('em', '', ' / ' + nf0.format(Math.round(p)))); r.append(a, b); leg.append(r); });
-    const an = el('div', 'v-anneaux'); an.append(s, leg); out.push(an);
+    const v = V(), m = vueMois(), trop = m.reste < 0, fin = v.nbJours + ' ' + moisCourt(v.mc);
+    const j = barre(m.B > 0 ? m.D / m.B : 0, trop ? 'var(--red)' : 'var(--blue)', v.auj / v.nbJours); j.classList.add('grande');
+    const jl = el('div', 'v-entre'); jl.append(el('span', '', eur(m.D) + ' dépensés'), el('span', '', 'sur ' + eur(m.B)));
+    const b = el('button', 'app-btn primary v-bouton', 'Je veux acheter…'); b.type = 'button'; b.onclick = () => ouvrirAchat();
+    c.replaceChildren(el('div', 'lab', trop ? 'Tu as dépassé ton budget de' : 'Il te reste à dépenser'), el('div', 'montant' + (trop ? ' neg' : ''), eur(Math.abs(m.reste))),
+      el('div', 'lab', !trop && m.jours > 0 ? 'soit ' + eur(m.reste / m.jours) + ' par jour jusqu’au ' + fin : 'Le mois se termine le ' + fin), j, jl, b);
+  });
+
+  // Épargne par mois, en euros entiers (servent à Ce mois-ci et à l'onglet Épargne)
+  const nomDe = (k) => MOIS_L[Number(k.slice(5, 7)) - 1];
+  // Euros entiers d'un mois : chaque ligne du calcul arrondie seule, le total calculé à partir des lignes affichées
+  const chiffresMois = (x) => {
+    const k = x.calcul, l = x.etat === 'prevu'
+      ? [['Aujourd’hui', k.aujourdhui, 'Revenus moins dépenses passées'], ['Reste des loisirs et variables', -k.reste_budget], ['Charges fixes à venir', -k.fixes_venir], ['Part des enveloppes', -k.env_venir], ['Report du mois d’avant', k.report], ['Trou de la caisse', -k.trou]]
+      : [['Revenus ' + de(nomDe(x.cle)), k.revenus], ['Charges fixes', -k.fixes], ['Loisirs et variables', -k.depenses], ['Part des enveloppes', -k.enveloppes], ['Trou de la caisse', -k.trou], ['Report du mois d’avant', k.report]];
+    const lignes = l.map(([t, n, s]) => ({ t, n: Math.round(n), s })).filter((y, i) => i === 0 || y.n !== 0);
+    const a = som(lignes.map((y) => y.n)), v = Math.round(x.vire);
+    return { lignes, a, v, reste: Math.max(0, a - v), trop: Math.max(0, v - Math.max(0, a)), retraits: Math.round(x.retraits) };
+  };
+  const vires = (v) => eur(v) + (v > 1 ? ' virés' : ' viré');
+  const termines = () => (V().epargne_mois || []).filter((x) => x.etat === 'termine');
+  const aVirerAffiche = () => som(termines().map((x) => chiffresMois(x).reste));
+
+  // Ce qui demande une action, et rien d'autre
+  const pageMt = () => pousser({ retour: 'Épargne', titre: () => cap(V().epargne.mois), sous: () => 'Mois terminé : plafonds et charges fixes', corps: corpsMt });
+  dash.draw('v_afaire', (c) => {
+    const v = V(), e = v.epargne, mt = e.mois.split(' ')[0], rows = [];
+    const aVirer = aVirerAffiche();
+    if (aVirer > 0) rows.push(ligne({ ic: 'envoi', ton: 'var(--teal)', titre: eur(aVirer) + ' à virer', clic: () => onglet('epargne'), chev: true }));
+    if (v.nc) rows.push(ligne({ ic: 'etiquette', ton: 'var(--orange)', titre: v.nc + ' opération' + (v.nc > 1 ? 's' : '') + ' à classer', clic: () => voirOps({ bloc: 'Non classé' }), chev: true }));
+    if (v.fixKo.length) rows.push(ligne({ ic: 'recu', ton: 'var(--orange)', titre: 'Charges fixes ' + de(mt) + ' à vérifier', clic: pageMt, chev: true }));
+    c.replaceChildren(...(rows.length ? [liste(rows)] : []));
+  });
+
+  // Où tu en es : trois groupes lus de la même façon (dépensé sur budget à gauche, reste à droite)
+  dash.draw('v_ou', (c) => {
+    const m = vueMois();
+    const g = (bloc, G) => ligne(Object.assign({ haut: true, ic: GROUPES[bloc][1], ton: G.reste < 0 ? 'var(--red)' : GROUPES[bloc][2], titre: GROUPES[bloc][0], apres: jauge(G.d, G.b, GROUPES[bloc][2]), sous: eur(G.d) + ' dépensés sur ' + eur(G.b), chev: true, clic: () => pageGroupe(bloc) }, resteTxt(G.reste)));
+    c.replaceChildren(section('Où tu en es'), liste([g('Loisirs', m.loi), g('Charges variables', m.vari),
+      ligne(Object.assign({ haut: true, ic: 'cadeau', ton: m.env.reste < 0 ? 'var(--red)' : 'var(--orange)', titre: 'Enveloppes', apres: jauge(m.env.d, m.env.b, 'var(--orange)'), sous: eur(m.env.d) + ' dépensés sur ' + eur(m.env.b), chev: true, clic: () => pageEnv() }, resteTxt(m.env.reste)))]));
+  });
+
+  // Détail d'un groupe : ses postes, lus comme le groupe
+  const pageGroupe = (bloc) => pousser({
+    retour: 'Ce mois-ci', titre: () => GROUPES[bloc][0],
+    sous: () => { const G = vueMois()[bloc === 'Loisirs' ? 'loi' : 'vari']; return eur(G.d) + ' dépensés sur ' + eur(G.b) + ' · ' + (G.reste >= 0 ? eur(G.reste) + ' restants' : eur(-G.reste) + ' de trop'); },
+    corps: () => [
+      liste(vueMois()[bloc === 'Loisirs' ? 'loi' : 'vari'].lignes.map((p) => ligne(Object.assign({ haut: true, ic: icone(p.r.poste), ton: p.reste < 0 ? 'var(--red)' : GROUPES[bloc][2], titre: p.r.poste, apres: jauge(p.d, p.b, GROUPES[bloc][2]), sous: eur(p.d) + ' sur ' + eur(p.b), chev: true, clic: () => voirOps(p.r) }, resteTxt(p.reste))))),
+      note(bloc === 'Loisirs' ? 'Touche un poste pour voir ses opérations. Le budget loisirs suit tes revenus du mois ; il se règle dans Réglages.' : 'Touche un poste pour voir ses opérations. Ces plafonds sont fixes ; ils se règlent dans Réglages.')
+    ]
+  });
+  const pageEnv = () => pousser({
+    retour: 'Ce mois-ci', titre: () => 'Enveloppes', sous: () => 'Plafonds de l’année ' + V().mc.slice(0, 4),
+    corps: () => { const v = V(), m = vueMois(); return [
+      liste(v.enveloppes.map((r) => { const d = Math.round(Number(r.depense)), b = Math.round(Number(r.seuil)); return ligne(Object.assign({ haut: true, ic: icone(r.poste), ton: b - d < 0 ? 'var(--red)' : 'var(--orange)', titre: r.poste, apres: jauge(d, b, 'var(--orange)'), sous: eur(d) + ' sur ' + eur(b) + ' cette année', chev: true, clic: () => voirOps(r) }, resteTxt(b - d))); })),
+      note('Chaque mois, ' + eur(m.env.b) + ' partent dans la caisse des enveloppes, qui paie ces dépenses. Ce mois-ci : ' + eur(m.env.d) + ' dépensés.')
+    ]; }
+  });
+
+  // ================= Épargne : combien dois-je virer aujourd'hui =================
+  // Le mois en cours (prévision), puis les 3 derniers mois terminés. Mois civil : un virement compte pour le mois de sa date,
+  // ou pour le mois auquel il est rattaché dans Opérations.
+  const ligneMois = (x) => {
+    const k = chiffresMois(x), nom = cap(nomDe(x.cle)), ouvrir = () => pageMoisEp(x.cle);
+    if (x.etat === 'prevu') {
+      const r = ligne({ haut: true, ic: 'calendrier', ton: 'var(--gray)', titre: nom, apres: barre(k.a > 0 ? k.v / k.a : 0, 'var(--gray)'), sous: vires(k.v) + ' sur ' + eur(Math.max(0, k.a)) + ' prévus', val: eur(k.reste), valSous: 'prévu', valCls: 'v-gris', chev: true, clic: ouvrir });
+      r.classList.add('prevu'); return r;
+    }
+    if (k.a < 0) return ligne({ haut: true, ic: 'baisse', ton: 'var(--orange)', titre: nom, sous: 'Fini à ' + eur(k.a), val: '0 €', valSous: x.laisse ? 'laissé filer' : 'reporté', chev: true, clic: ouvrir });
+    if (k.reste > 0) return ligne({ haut: true, ic: 'calendrier', ton: 'var(--red)', titre: nom, apres: barre(k.a > 0 ? k.v / k.a : 0, 'var(--green)'), sous: vires(k.v) + ' sur ' + eur(k.a), val: eur(k.reste), valSous: 'à virer', valCls: 'neg', chev: true, clic: ouvrir });
+    const r = ligne({ haut: true, ic: 'ok', ton: 'var(--green)', titre: nom, apres: barre(1, 'var(--green)'), sous: vires(k.v) + ' sur ' + eur(k.a), val: '', valSous: k.trop ? '+' + eur(k.trop) : 'soldé', chev: true, clic: ouvrir });
+    const vv = r.querySelector('.v-val'); vv.classList.add('pos'); vv.prepend(dessin('ok', 20));
+    return r;
+  };
+  dash.draw('v_ep_sous', (p) => { const e = A.bundle().export; p.textContent = e ? 'Relevé du ' + Number(e.slice(8, 10)) + ' ' + moisCourt(e) : ''; });
+  dash.draw('v_ep', (c) => {
+    const v = V(), out = [], total = aVirerAffiche();
+    const dus = termines().filter((x) => chiffresMois(x).reste > 0).map((x) => nomDe(x.cle));
+    const h = el('div', 'v-carte v-heros');
+    if (total > 0) h.append(el('div', 'lab', 'À virer aujourd’hui'), el('div', 'montant', eur(total)), el('div', 'lab', 'Pour ' + (dus.length > 1 ? dus.slice(0, -1).join(', ') + ' et ' + dus[dus.length - 1] : dus[0])));
+    else h.append(el('div', 'lab', 'À virer aujourd’hui'), el('div', 'montant pos', '0 €'), el('div', 'lab', termines().length ? 'Tout est viré' : 'Pas encore de mois terminé'));
+    out.push(h, section('Mois par mois'), liste((v.epargne_mois || []).map(ligneMois)));
+    const k = v.caisse.valeur;
+    out.push(liste([
+      ligne({ ic: 'caisse', ton: k < 0 ? 'var(--orange)' : 'var(--green)', titre: 'Caisse des enveloppes', sous: k < 0 ? 'À rattraper sur l’épargne' : 'D’avance pour les enveloppes', val: signe(k), valCls: k < 0 ? 'neg' : '' }),
+      ligne({ ic: 'boussole', ton: 'var(--teal)', titre: 'Et si… (projections)', clic: () => pageProj(), chev: true })]));
+    $('pt-epargne').hidden = !(total > 0);
     c.replaceChildren(...out);
   });
 
-  // À faire : ce qui demande une décision
-  const pageMt = () => pousser({ retour: 'Ce mois-ci', titre: () => cap(V().epargne.mois), corps: corpsMt });
-  dash.draw('v_afaire', (c) => {
-    const v = V(), e = v.epargne, mt = e.mois.split(' ')[0], rythme = v.auj / v.nbJours, rows = [];
-    [['Loisirs', v.depense.loisirs, v.prevu.loisirs], ['Variables', v.depense.variables, v.prevu.variables]].forEach(([n, d, p]) => {
-      if (p <= 0) return;
-      if (d > p) rows.push(ligne({ ic: 'alerte', ton: 'var(--red)', titre: n + ' dépassés de ' + eur(d - p), sous: 'Compense sur les autres postes', clic: () => $('v-plafonds').scrollIntoView({ behavior: 'smooth' }), chev: true }));
-      else if (d / p > rythme + 0.15) rows.push(ligne({ ic: 'alerte', ton: 'var(--orange)', titre: n + ' : ' + Math.round(d / p * 100) + ' % dépensés', sous: 'Le mois n’en est qu’à ' + Math.round(rythme * 100) + ' %', clic: () => $('v-plafonds').scrollIntoView({ behavior: 'smooth' }), chev: true }));
-    });
-    if (e.manque > 0) rows.push(ligne({ ic: 'baisse', ton: 'var(--red)', titre: cap(mt) + ' fini à −' + eur(e.manque), sous: 'Pris sur ton compte courant · ' + (e.laisse ? 'laissé filer' : 'reporté'), clic: pageMt, chev: true }));
-    const k = v.caisse.valeur;
-    rows.push(ligne({ ic: 'caisse', ton: k < 0 ? 'var(--orange)' : 'var(--green)', titre: 'Caisse des enveloppes', sous: k < 0 ? 'Retirée de l’épargne ' + de(v.mois_mc.split(' ')[0]) : 'D’avance pour les grosses dépenses', val: signe(k), valCls: k < 0 ? 'neg' : '' }));
-    const cs = v.coussin.dernier;
-    if (cs && (v.coussin.sous_seuil || v.coussin.baisse)) rows.push(ligne({ ic: 'bouee', ton: v.coussin.sous_seuil ? 'var(--red)' : 'var(--orange)', titre: 'Compte courant : ' + eur(cs.solde) + ' avant le salaire', sous: v.coussin.sous_seuil ? 'Sous ton minimum de ' + eur(v.coussin.seuil) : 'En baisse de ' + eur(-cs.ecart) + ' en un mois', clic: () => onglet('duree'), chev: true }));
-    if (e.reste > 0) rows.push(ligne({ ic: 'envoi', ton: 'var(--teal)', titre: eur2(e.reste) + ' ' + de(mt) + ' à virer', sous: 'Vers ton épargne', clic: pageMt, chev: true }));
-    else if (e.a_virer > 0) rows.push(ligne({ ic: 'ok', ton: 'var(--green)', titre: 'Épargne ' + de(mt) + ' virée' }));
-    if (v.nc) rows.push(ligne({ ic: 'etiquette', ton: 'var(--orange)', titre: v.nc + ' opération' + (v.nc > 1 ? 's' : '') + ' à classer', clic: () => voirOps({ bloc: 'Non classé' }), chev: true }));
-    if (v.fixKo.length) rows.push(ligne({ ic: 'recu', ton: 'var(--orange)', titre: 'Charges fixes ' + de(mt) + ' à vérifier', sous: v.fixKo.join(', '), clic: pageMt, chev: true }));
-    c.replaceChildren(section('À faire'), liste(rows));
-  });
-
-  // Épargne prévue en fin de mois : la courbe du mois
-  dash.draw('v_epargne_prevue', (c) => {
-    const v = V(), W = 340, H = 104, x0 = 6, x1 = W - 6, y0 = 10, y1 = H - 22;
-    const pts = v.courbe.concat(v.projection), vals = pts.map((p) => p.v).concat([0]);
-    const mn = Math.min(...vals), mx = Math.max(...vals), X = (j) => x0 + (x1 - x0) * j / v.nbJours, Y = (y) => y1 - (y1 - y0) * (y - mn) / ((mx - mn) || 1);
-    const path = (l) => l.map((p, i) => (i ? 'L' : 'M') + X(p.j).toFixed(1) + ' ' + Y(p.v).toFixed(1)).join(' ');
-    const carte = el('div', 'v-carte v-courbe'), tete = el('div'); tete.style.cssText = 'display:flex;justify-content:space-between;align-items:baseline';
-    const val = el('span', v.fin < 0 ? 'neg' : 'pos', signe(v.fin)); val.style.font = '700 24px var(--sfr)';
-    tete.append(el('span', 'v-gris', 'Fin ' + v.mois_mc.split(' ')[0]), val);
-    const s = svg('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'Épargne prévue en fin de mois : ' + eur(v.fin) });
-    s.append(svg('line', { x1: x0, x2: x1, y1: Y(0), y2: Y(0), stroke: 'var(--sep)' }),
-      svg('path', { d: path(v.projection), stroke: 'var(--fg3)', 'stroke-width': 2, 'stroke-dasharray': '3 4', fill: 'none' }),
-      svg('path', { d: path(v.courbe), stroke: 'var(--fg)', 'stroke-width': 2.5, fill: 'none', 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }));
-    const aj = v.courbe[v.courbe.length - 1];
-    s.append(svg('circle', { cx: X(aj.j), cy: Y(aj.v), r: 4, fill: 'var(--fg)' }), svg('circle', { cx: X(v.nbJours), cy: Y(v.fin), r: 4, fill: v.fin < 0 ? 'var(--red)' : 'var(--green)' }),
-      svg('text', { x: x0, y: H - 4 }, '1 ' + moisCourt(v.mc)), svg('text', { x: x1, y: H - 4, 'text-anchor': 'end' }, v.nbJours + ' ' + moisCourt(v.mc)));
-    carte.append(tete, s, el('p', 'v-note', 'Trait plein : ce qui s’est passé. Pointillé : charges fixes à venir et reste du budget dépensé au rythme prévu.'));
-    const fa = finAjustee();
-    if (Math.abs(fa - v.fin) >= 0.5) {
-      const e = v.epargne, causes = [];
-      if (e.manque > 0 && !e.laisse) causes.push('le report ' + de(e.mois.split(' ')[0]) + ' (−' + eur(e.manque) + ')');
-      if (v.caisse.valeur < 0) causes.push('le trou de la caisse (' + eur(v.caisse.valeur) + ')');
-      const l = el('p', 'v-note'); l.append('Avec ' + causes.join(' et ') + ' : ', el('b', fa < 0 ? 'neg' : 'pos', signe(fa))); l.style.margin = '6px 0 0'; carte.append(l);
+  // Détail d'un mois : le calcul, ce qui est déjà viré, les virements comptés, et pour le mois terminé ses plafonds
+  const pageMoisEp = (cle) => pousser({
+    retour: 'Épargne', titre: () => cap(nomDe(cle)),
+    sous: () => { const x = (V().epargne_mois || []).find((y) => y.cle === cle); return x ? (x.etat === 'prevu' ? 'Mois en cours · prévision' : 'Mois terminé') : ''; },
+    corps: () => {
+      const v = V(), x = (v.epargne_mois || []).find((y) => y.cle === cle); if (!x) return [note('Ce mois n’est plus dans la liste.')];
+      const k = chiffresMois(x), prevu = x.etat === 'prevu', out = [];
+      out.push(calcul(k.lignes.map((y, i) => ligne({ titre: y.t, sous: y.s, val: i === 0 ? (prevu ? signe(y.n) : eur(y.n)) : (y.n < 0 ? '−' + eur(-y.n) : '+' + eur(y.n)) }))
+        .concat([ligne({ titre: prevu ? 'Prévu à épargner' : 'À épargner', val: eur(k.a), valCls: k.a < 0 ? 'neg' : '', total: true })])));
+      out.push(calcul([ligne({ titre: 'Déjà viré', val: moins(k.v) }), ligne({ titre: 'Reste à virer', val: eur(k.reste), total: true })]));
+      if (prevu) out.push(note('C’est une prévision : le reste du budget est compté comme dépensé au rythme prévu. Le montant exact sera connu à la fin du mois.'));
+      else if (k.a < 0) {
+        const b = el('button', 'app-btn v-bouton', x.laisse ? 'Finalement, le reporter' : 'Laisser filer'); b.type = 'button';
+        b.onclick = () => { const bu = A.bundle(), l = Object.assign({}, bu.deficits_laisses || {}); if (x.laisse) delete l[cle]; else l[cle] = true; A.maj(Object.assign({}, bu, { deficits_laisses: l }), x.laisse ? 'Le manque sera reporté sur le mois suivant.' : 'Manque laissé filer : rien n’est reporté.'); };
+        out.push(b, note(x.laisse ? 'Laissé filer : ce manque a été pris sur ton compte courant, sans être déduit du mois suivant.' : 'Ce manque est déduit du mois suivant. Laisser filer : tu acceptes qu’il soit pris sur ton compte courant.'));
+      } else if (k.trop) out.push(note(eur(k.trop) + ' virés en plus : ils réduisent ce qu’il faudra virer le mois suivant.'));
+      const ops = (dash.data('operations').data || []).filter((o) => x.virements.includes(o.id)).sort((a, b) => (a.date < b.date ? -1 : 1));
+      out.push(section('Virements comptés'));
+      if (!ops.length) out.push(note('Aucun pour l’instant. Un virement fait plus tard peut être rattaché à ce mois depuis Opérations.'));
+      else out.push(liste(ops.map((o) => ligne({ ic: 'envoi', ton: 'var(--teal)', court: true, titre: M.nomCourt(o.libelle), sous: Number(o.date.slice(8, 10)) + ' ' + moisCourt(o.date) + (o.mois_epargne ? ' · rattaché' : ''), val: eur2(-Number(o.montant)), data: { op: String(o.id) }, clic: () => {}, chev: true }))));
+      if (k.retraits > 0) out.push(note('Retiré de l’épargne ce mois-là : ' + eur(k.retraits) + '. Un retrait ne compte pas dans « Déjà viré ».'));
+      if (cle === v.epargne.cle) out.push(liste([ligne({ ic: 'recu', ton: v.fixKo.length ? 'var(--orange)' : 'var(--gray)', titre: 'Plafonds et charges fixes', sous: v.fixKo.length ? 'Charges fixes à vérifier' : '', sousCls: 'orange', clic: pageMt, chev: true })]));
+      return out;
     }
-    carte.querySelector('.v-note').style.margin = '6px 0 0';
-    c.replaceChildren(section('Épargne prévue'), carte);
-  });
-
-  // Plafonds : une ligne par poste, jauge et reste
-  const lignePoste = (r, rythme, couleur, sansRepere) => {
-    const d = Number(r.depense), s = Number(r.seuil), re = Number(r.reste), p = s > 0 ? d / s : d > 0 ? 2 : 0;
-    const coul = re < 0 ? 'var(--red)' : p > rythme + 0.15 && !sansRepere ? 'var(--orange)' : couleur;
-    return ligne({ ic: icone(r.poste), ton: couleur, titre: r.poste, apres: barre(p, coul, sansRepere ? null : rythme), val: re < 0 ? '−' + eur(-re) : eur(re), valSous: re < 0 ? 'dépassé' : 'restants', valCls: re < 0 ? 'neg' : '', clic: () => voirOps(r) });
-  };
-  dash.draw('v_plafonds', (c) => {
-    const v = V(), rythme = v.auj / v.nbJours, an = (Number(v.mc.slice(5, 7)) - 1 + rythme) / 12;
-    const entames = v.postes.filter((r) => Number(r.depense) !== 0), intacts = v.postes.filter((r) => Number(r.depense) === 0);
-    const rows = entames.map((r) => lignePoste(r, rythme, ton(r.bloc)));
-    if (intacts.length) {
-      const d = el('details'), s = ligne({ ic: 'ok', ton: 'var(--green)', titre: intacts.length + ' poste' + (intacts.length > 1 ? 's' : '') + ' pas encore entamé' + (intacts.length > 1 ? 's' : ''), sous: intacts.map((r) => r.poste).join(', '), val: eur(intacts.reduce((t, r) => t + Number(r.seuil), 0)), chev: true });
-      const sum = el('summary', s.className); sum.append(...s.childNodes); d.append(sum, ...intacts.map((r) => lignePoste(r, rythme, ton(r.bloc))));
-      rows.push(d);
-    }
-    const tete = section('Plafonds'); tete.id = 'v-plafonds';
-    c.replaceChildren(tete, liste(rows), section('Enveloppes ' + v.mc.slice(0, 4)), liste(v.enveloppes.map((r) => lignePoste(r, an, 'var(--orange)'))),
-      el('p', 'v-note', 'Le trait montre où tu devrais en être aujourd’hui. Les enveloppes sont payées par la caisse.'));
-  });
-
-  dash.draw('v_avenir', (c) => {
-    const v = V(), y = Number(v.mc.slice(0, 4)), m = Number(v.mc.slice(5, 7));
-    if (!v.aVenir.length) { c.replaceChildren(); return; }
-    c.replaceChildren(section('Ce qui arrive'), liste(v.aVenir.map((a) => ligne({ titre: a.libelle, sous: JOURS[new Date(Date.UTC(y, m - 1, a.jour)).getUTCDay()] + ' ' + a.jour + (a.detail && /pas encore/.test(a.detail) ? ' · pas encore vue' : ''), val: signe(a.montant), valCls: a.montant > 0 ? 'pos' : '' })), true));
-  });
-
-  dash.draw('v_mt_lien', (c) => {
-    const v = V(), e = v.epargne;
-    c.replaceChildren(ligne({ ic: 'calendrier', ton: 'var(--gray)', titre: cap(e.mois), sous: 'Mois terminé · ' + (e.manque > 0 ? 'fini à −' + eur(e.manque) : e.a_virer > 0 ? eur(e.a_virer) + ' d’épargne' : 'rien à épargner') + (v.fixKo.length ? ' · charges à vérifier' : ''), clic: pageMt, chev: true }));
   });
 
   // ---------- Mois terminé (page poussée) ----------
   const corpsMt = () => {
     const v = V(), e = v.epargne, out = [];
-    const ep = [
-      ligne({ ic: 'billet', ton: 'var(--green)', titre: 'Revenus', sous: 'Salaire ' + eur(syn('salaire')) + ' · CAF ' + eur(syn('caf')) + ' · Action Logement ' + eur(syn('al')), val: eur2(syn('revenus')) }),
-      ligne({ ic: 'pieces', ton: 'var(--green)', titre: 'À virer sur l’épargne', val: eur2(e.a_virer) }),
-      ligne({ ic: 'envoi', ton: 'var(--teal)', titre: 'Déjà viré', sous: 'Envoyé ' + eur(syn('tr_envois')) + ' − retiré ' + eur(syn('tr_retraits')), val: eur2(e.deja), valCls: e.deja < 0 ? 'neg' : '' }),
-      ligne({ ic: e.reste > 0 ? 'alerte' : 'ok', ton: e.reste > 0 ? 'var(--orange)' : 'var(--green)', titre: 'Reste à virer', val: eur2(e.reste) })];
-    out.push(section('Épargne'), liste(ep), el('p', 'v-note', String(syn('tr_etat')) + ' ' + String(syn('tr_note'))));
-    if (e.manque > 0) {
-      const b = el('button', 'app-btn', e.laisse ? 'Finalement, le reporter' : 'Laisser filer'); b.type = 'button'; b.style.cssText = 'width:100%;margin-top:10px';
-      b.onclick = () => { const bu = A.bundle(), l = Object.assign({}, bu.deficits_laisses || {}); if (e.laisse) delete l[e.cle]; else l[e.cle] = true; A.maj(Object.assign({}, bu, { deficits_laisses: l }), e.laisse ? 'Le manque sera reporté sur le mois suivant.' : 'Manque laissé filer : rien n’est reporté.'); };
-      out.push(b, el('p', 'v-note', 'Laisser filer : tu acceptes que ce manque soit pris sur ton compte courant, sans le déduire du mois suivant.'));
-    }
-    const calc = el('details'), sm = el('summary', 'v-note', 'Détail du calcul ›'); sm.style.cursor = 'pointer';
-    calc.append(sm, el('p', 'v-note', 'Revenus ' + eur2(syn('tr_revenus')) + ' − charges fixes passées ' + eur2(syn('tr_fixes')) + ' − loisirs et charges variables dépensés ' + eur2(syn('tr_depenses')) + ' − part des enveloppes ' + eur2(syn('tr_env')) + ' − dépassement de la caisse ' + eur2(syn('tr_trou_env')) + ' + report du mois précédent ' + eur2(syn('tr_report')) + '. Les envois vers l’épargne faits du 1er au 10 du mois suivant comptent pour ce mois-ci.'));
-    out.push(calc);
     const rows = (dash.data('mois_courant').data || []).filter((r) => r.bloc === 'Loisirs' || r.bloc === 'Charges variables');
-    const reste = rows.reduce((s, r) => s + Number(r.seuil) - Number(r.depense), 0);
-    const tp = section('Plafonds'); tp.append(el('span', 'v-pastille' + (reste < 0 ? ' r' : ''), reste < 0 ? 'dépassé de ' + eur(-reste) : 'reste ' + eur(reste)));
-    out.push(tp, liste(rows.map((r) => lignePoste(Object.assign({}, r, { mois: e.cle }), 1, ton(r.bloc), true))));
+    const d = M.entiers(rows.map((r) => Number(r.depense))), b = M.entiers(rows.map((r) => Number(r.seuil))), reste = som(b) - som(d);
+    const tp = section('Plafonds'); tp.append(el('span', 'v-pastille' + (reste < 0 ? ' r' : ''), reste < 0 ? eur(-reste) + ' de trop' : eur(reste) + ' restants'));
+    out.push(tp, liste(rows.map((r, i) => ligne(Object.assign({ haut: true, ic: icone(r.poste), ton: b[i] - d[i] < 0 ? 'var(--red)' : ton(r.bloc), titre: r.poste, apres: jauge(d[i], b[i], ton(r.bloc)), sous: eur(d[i]) + ' sur ' + eur(b[i]), chev: true, clic: () => voirOps(Object.assign({}, r, { mois: e.cle })) }, resteTxt(b[i] - d[i]))))));
     const fx = (dash.data('mois_courant').data || []).filter((r) => r.bloc === 'Charges fixes'), ko = fx.filter((r) => !r.ok).length;
     const tf = section('Charges fixes'); tf.append(el('span', 'v-pastille' + (ko ? ' o' : ''), ko ? ko + ' à vérifier' : 'conformes'));
     out.push(tf, liste(fx.map((r) => ligne({ ic: r.ok ? icone(r.poste) : 'alerte', ton: r.ok ? 'var(--gray)' : 'var(--orange)', titre: r.poste, sous: r.etat, sousCls: r.ok ? '' : 'orange',
@@ -315,7 +338,7 @@
       b.onclick = () => { choix = { type, id: r.id }; puces(); repondre(); }; box.append(b); };
     v.postes.forEach((r) => ajout(r, 'mois')); v.enveloppes.forEach((r) => ajout(r, 'env'));
   };
-  $('v-acheter').onclick = () => { const v = V(); if (!choix) choix = { type: 'mois', id: v.postes[0].id }; $('ach-m').value = ''; puces(); repondre(); A.ouvrir(dAch); setTimeout(() => $('ach-m').focus(), 300); };
+  const ouvrirAchat = () => { const v = V(); if (!choix) choix = { type: 'mois', id: v.postes[0].id }; $('ach-m').value = ''; puces(); repondre(); A.ouvrir(dAch); setTimeout(() => $('ach-m').focus(), 300); };
   $('ach-m').addEventListener('input', repondre);
 
   // ================= Patrimoine =================
@@ -342,74 +365,51 @@
       pts.forEach((q, i) => { if (i % pas === 0 || i === pts.length - 1) s.append(svg('text', { x: X(i), y: H - 4, 'text-anchor': i === 0 ? 'start' : i === pts.length - 1 ? 'end' : 'middle' }, moisCourt(q.mois))); });
       const box = el('div', 'v-graph'); box.append(s); out.push(box);
     }
-    if (!p.complet) { const b = el('button', 'app-btn', 'Compléter mes placements'); b.type = 'button'; b.style.cssText = 'width:100%;margin-top:12px'; b.onclick = () => onglet('regles'); out.push(b); }
+    if (!p.complet) { const b = el('button', 'app-btn', 'Compléter mes placements'); b.type = 'button'; b.style.cssText = 'width:100%;margin-top:12px'; b.onclick = () => placer(p.livret === null ? 'livret' : p.pea === null ? 'pea' : p.tr === null ? 'tr' : 'pret'); out.push(b); }
     c.replaceChildren(...out);
   });
-  const lignesComptes = (p) => [
-    ligne({ ic: 'banque', ton: 'var(--green)', titre: 'Livret A', sous: p.livret === null ? 'À saisir une fois' : p.livret_taux ? 'Intérêts estimés à ' + String(p.livret_taux).replace('.', ',') + ' %' : 'Ajoute son taux pour compter les intérêts', val: p.livret === null ? '—' : eur(p.livret), clic: () => placer('livret'), chev: true }),
-    ligne({ ic: 'hausse', ton: 'var(--indigo)', titre: 'PEA', sous: p.pea_date ? 'Valeur du ' + p.pea_date.slice(0, 5) : 'À saisir', val: p.pea === null ? '—' : eur(p.pea), clic: () => placer('pea'), chev: true }),
-    ligne({ ic: 'portefeuille', ton: 'var(--blue)', titre: 'Trade Republic', sous: p.tr_date ? 'Solde au ' + p.tr_date.slice(0, 5) : 'Importe son export CSV', val: p.tr === null ? '—' : eur(p.tr), clic: () => placer('tr'), chev: true }),
-    ligne({ ic: 'diplome', ton: 'var(--red)', titre: 'Prêt étudiant', sous: p.fin_pret ? 'Fin en ' + p.fin_pret : 'À saisir une fois', val: p.dette === null ? '—' : eur(-p.dette), valCls: 'neg', clic: () => placer('pret'), chev: true })];
-  dash.draw('v_comptes', (c) => { c.replaceChildren(section('Comptes'), liste(lignesComptes(V().patrimoine))); });
-  // Réserve : ce qui protège des coups durs (Livret A), la caisse des enveloppes et le compte courant en fin de mois
-  dash.draw('v_coussin', (c) => {
-    const v = V(), p = v.patrimoine, k = v.coussin, cs = v.caisse.valeur;
-    const rows = [
-      ligne({ ic: 'bouee', ton: 'var(--green)', titre: 'Livret A', sous: 'Couvre ' + String(p.matelas).replace('.', ',') + ' mois de dépenses normales', val: p.livret === null ? '—' : eur(p.livret) }),
-      ligne({ ic: 'caisse', ton: 'var(--orange)', titre: 'Caisse des enveloppes', sous: cs < 0 ? 'À rattraper sur l’épargne' : 'D’avance pour les grosses dépenses', val: signe(cs), valCls: cs < 0 ? 'neg' : '' })];
-    const out = [section('Réserve'), liste(rows)];
-    if (!k.liste.length) out.push(el('p', 'v-note', 'Importe un export récent de ta banque : son solde après chaque opération permet de suivre ton compte courant en fin de mois.'));
-    else {
-      const mx = Math.max(...k.liste.map((x) => x.solde), k.seuil, 1);
-      const cc = k.liste.slice().reverse().map((x) => ligne({ titre: cap(x.mois_lib), sous: 'Veille du salaire, le ' + x.jour.slice(0, 5) + (x.ecart === null ? '' : ' · ' + signe(x.ecart)),
-        apres: barre(x.solde / mx, x.solde < k.seuil ? 'var(--red)' : 'var(--green)', k.seuil / mx), val: eur(x.solde), valCls: x.solde < k.seuil ? 'neg' : '' }));
-      const min = el('label', 'v-ligne'); min.append(el('div', 'v-txt', 'Minimum souhaité'));
-      const inp = el('input', 'v-input'); inp.type = 'text'; inp.inputMode = 'numeric'; inp.value = eur(k.seuil); inp.setAttribute('aria-label', 'Minimum souhaité sur le compte courant');
-      inp.onchange = () => { const n = nombre(inp.value); if (n >= 0) A.maj(Object.assign({}, A.bundle(), { coussin_min: n }), 'Minimum du compte courant enregistré.'); else A.msg('Minimum invalide : rien n’a été changé.', true); };
-      min.append(inp); cc.push(min);
-      const t = el('h3', 'v-jour', 'Compte courant, avant chaque salaire'); out.push(t, liste(cc));
-    }
-    out.push(el('p', 'v-note', 'Le Livret A est ta vraie réserve ; les espèces Trade Republic, venues du prêt, n’y sont pas comptées. Le compte courant montre ce qui reste quand le mois se termine.'));
-    c.replaceChildren(...out);
+  // Les comptes ne sont affichés qu'ici
+  dash.draw('v_comptes', (c) => {
+    const p = V().patrimoine;
+    c.replaceChildren(section('Comptes'), liste([
+      ligne({ ic: 'banque', ton: 'var(--green)', titre: 'Livret A', sous: p.livret === null ? 'À saisir une fois' : dec1(p.matelas) + ' mois de dépenses', val: p.livret === null ? '—' : eur(p.livret), clic: () => placer('livret'), chev: true }),
+      ligne({ ic: 'hausse', ton: 'var(--indigo)', titre: 'PEA', sous: p.pea_date ? 'Valeur du ' + p.pea_date.slice(0, 5) : 'À saisir', val: p.pea === null ? '—' : eur(p.pea), clic: () => placer('pea'), chev: true }),
+      ligne({ ic: 'portefeuille', ton: 'var(--blue)', titre: 'Trade Republic', sous: p.tr_date ? 'Solde au ' + p.tr_date.slice(0, 5) : 'Importe son export', val: p.tr === null ? '—' : eur(p.tr), clic: () => placer('tr'), chev: true }),
+      ligne({ ic: 'diplome', ton: 'var(--red)', titre: 'Prêt étudiant', sous: p.fin_pret ? 'Fin en ' + p.fin_pret : 'À saisir une fois', val: p.dette === null ? '—' : eur(-p.dette), valCls: 'neg', clic: () => placer('pret'), chev: true })]));
   });
-
-  // Repère 50 / 30 / 20 : la répartition réelle des mois terminés, en moyenne ou sur le mois dernier
-  const pc = (x) => (x < 0 ? '−' : '') + sp(new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 1, minimumFractionDigits: 1 }).format(Math.abs(x * 100))) + ' %';
-  const pc0 = (x) => { const n = Math.round(x * 100); return (n < 0 ? '−' : '') + Math.abs(n) + ' %'; };
-  const note = (t) => el('p', 'v-note', t);
-  const M = window.Moteur;
+  // Ma répartition : le repère 50 / 30 / 20 sur les mois terminés, en moyenne ou sur le mois dernier
   let periodeRep = 'moy';
-  dash.draw('v_repere', (c) => {
-    const v = V(), out = [section('Repère 50 / 30 / 20')];
-    if (!v.reel.mois.length) out.push(note('Pas encore de mois terminé : ta répartition s’affichera après ton premier mois complet.'));
-    else {
+  const pageRepere = () => pousser({
+    retour: 'Réglages', titre: () => 'Ma répartition', sous: () => 'Face au repère 50 / 30 / 20',
+    corps: () => {
+      const v = V(), out = [];
+      if (!v.reel.mois.length) return [note('Pas encore de mois terminé : ta répartition s’affichera après ton premier mois complet.')];
+      if (!v.dernier) periodeRep = 'moy';
       const seg = el('div', 'v-segment'); seg.setAttribute('role', 'group');
-      [['moy', 'Moyenne ' + v.reel.mois.length + ' mois'], ['der', 'Mois dernier']].forEach(([id, t]) => { const b = el('button', '', t); b.type = 'button'; b.setAttribute('aria-pressed', String(periodeRep === id)); b.onclick = () => { periodeRep = id; dash.draw('v_repere'); }; seg.append(b); });
+      [['moy', 'Moyenne ' + v.reel.mois.length + ' mois'], ['der', 'Mois dernier']].forEach(([id, t]) => { if (id === 'der' && !v.dernier) return; const b = el('button', '', t); b.type = 'button'; b.setAttribute('aria-pressed', String(periodeRep === id)); b.onclick = () => { periodeRep = id; dash.draw('v_page'); }; seg.append(b); });
       out.push(seg);
       const Re = periodeRep === 'der' ? v.dernier : v.reel;
-      const pts = (x) => String(Math.round(Math.abs(x) * 10) / 10).replace('.', ',') + (Math.abs(x) >= 2 ? ' pts' : ' pt');
-      out.push(liste([['Obligations', 'maison', 'var(--blue)', Re.pct.obligations, Re.obligations, 0.5, false],
-        ['Plaisir', 'resto', 'var(--indigo)', Re.pct.plaisir, Re.plaisir, 0.3, false],
-        ['Épargne', 'cible', 'var(--green)', Re.pct.epargne, Re.epargne, 0.2, true]].map(([n, ic, col, p, e, cible, auDessus]) => {
+      const pts = (x) => dec1(Math.abs(x)) + (Math.abs(x) >= 2 ? ' pts' : ' pt');
+      const [eo, ep, ee] = M.entiers([Re.obligations, Re.plaisir, Re.epargne]);
+      out.push(liste([['Obligations', 'maison', 'var(--blue)', Re.pct.obligations, eo, 0.5, false], ['Plaisir', 'resto', 'var(--indigo)', Re.pct.plaisir, ep, 0.3, false], ['Épargne', 'cible', 'var(--green)', Re.pct.epargne, ee, 0.2, true]].map(([n, ic, col, p, e, cible, auDessus]) => {
         const ec = (p - cible) * 100, bon = auDessus ? ec >= -0.05 : ec <= 0.05;
-        const r = ligne({ ic, ton: col, titre: n, sous: eur(e) + ' · repère ' + pc0(cible), apres: barre(Math.max(0, p), bon ? col : 'var(--orange)', cible), val: pc(p) });
+        const r = ligne({ haut: true, ic, ton: col, titre: n, apres: barre(Math.max(0, p), bon ? col : 'var(--orange)', cible), sous: eur(e) + ' par mois · repère ' + pc0(cible), val: pc(p) });
         const ecs = el('small', bon ? 'pos' : 'orange', (ec >= 0 ? '+' : '−') + pts(ec)); ecs.style.fontWeight = '600'; r.querySelector('.v-val').append(ecs);
         return r;
       })));
       const per = periodeRep === 'der' ? cap(M.moisLabel(Re.mois[0])) : 'En moyenne de ' + M.moisLabel(Re.mois[0]) + ' à ' + M.moisLabel(Re.mois[Re.mois.length - 1]);
-      out.push(note(per + ', sur ' + eur(Re.revenus) + ' de revenus réels par mois (hors revenus exceptionnels). Obligations : charges fixes, charges variables, santé, entretien. Plaisir : loisirs, cadeaux, achats divers, voyages. Épargne : ce qui reste. Le trait sur chaque jauge marque le repère : au plus 50 %, au plus 30 %, au moins 20 %.'));
+      out.push(note(per + ', sur ' + eur(eo + ep + ee) + ' de revenus réels par mois (hors revenus exceptionnels). Le trait de chaque jauge marque le repère. Obligations : charges fixes, charges variables, santé, entretien. Plaisir : loisirs, cadeaux, achats divers, voyages.'));
+      return out;
     }
-    out.push(section('Et si…'));
-    out.push(liste([ligne({ ic: 'boussole', ton: 'var(--teal)', titre: 'Projections', sous: 'Congés sans solde, baisse de salaire, projet', chev: true, clic: () => pageProj() })]));
-    c.replaceChildren(...out);
   });
 
   // Projections : aucune question n'est obligatoire, une réponse vide est remplacée par une hypothèse (en bleu)
-  const SCEN = [['conges', 'Congés'], ['baisse', 'Baisse de salaire'], ['projet', 'Projet']];
+  const SCEN = [['conges', 'Congés'], ['baisse', 'Salaire'], ['projet', 'Projet']];
+  const TITRE_SCEN = { conges: 'Des congés sans solde', baisse: 'Une baisse de salaire', projet: 'Un projet à financer' };
   const QUESTIONS = {
     conges: [['jours', 'Jours sans solde', 'jours'], ['mois', 'Quel mois ?', 'mois'], ['par_jour', 'Perte par jour', '€']],
-    baisse: [['salaire', 'Nouveau salaire par mois', '€']],
-    projet: [['montant', 'Combien coûte le projet ?', '€'], ['mois', 'Pour quand ?', 'mois'], ['deja', 'Déjà mis de côté', '€']]
+    baisse: [['salaire', 'Nouveau salaire', '€']],
+    projet: [['montant', 'Coût du projet', '€'], ['mois', 'Pour quand ?', 'mois'], ['deja', 'Déjà mis de côté', '€']]
   };
   let scen = 'conges';
   const repProj = { conges: {}, baisse: {}, projet: {} };
@@ -417,7 +417,7 @@
   const resultatProj = (zone) => {
     const calc = A.calc(), b = calc.vue.base, r = M.projeter(scen, repProj[scen], calc), x = r.res, H = r.hyp, out = [], hyps = [];
     const lh = (k, t) => { if (H[k]) hyps.push(t); };
-    const mois1 = (n) => String(n).replace('.', ',') + ' mois';
+    const mois1 = (n) => dec1(n) + ' mois';
     const carteGros = (lab, val, sous, cls) => { const k = el('div', 'v-carte'); k.append(el('div', 'v-gris', lab)); k.append(el('div', 'v-gros' + (cls ? ' ' + cls : ''), val)); if (sous) k.append(el('div', 'v-gris', sous)); return k; };
     const salTxt = (b.reel ? 'salaire moyen' : 'salaire de référence') + ' de ' + eur(b.salaire);
     if (scen === 'conges') {
@@ -434,46 +434,46 @@
       if (x.a_reduire > 0) {
         l.push(ligne({ titre: 'À réduire chaque mois', val: eur(x.a_reduire), valCls: 'neg' }));
         l.push(ligne({ titre: 'Soit sur tes dépenses plaisir', val: '−' + pc0(x.reduc_plaisir) }));
-        if (x.reserve) l.push(ligne({ titre: 'Sans rien réduire, ton Livret A tiendrait', val: mois1(x.reserve) }));
+        if (x.reserve && x.reserve <= 120) l.push(ligne({ titre: 'Ton Livret A, sans rien réduire', val: mois1(x.reserve) }));
       }
-      if (x.reserve_sans_salaire) l.push(ligne({ titre: 'Sans aucun salaire, ton Livret A tiendrait', val: mois1(x.reserve_sans_salaire) }));
+      if (x.reserve_sans_salaire) l.push(ligne({ titre: 'Ton Livret A, sans aucun salaire', val: mois1(x.reserve_sans_salaire) }));
       out.push(liste(l, true));
     } else {
       lh('montant', eur(x.montant)); lh('mois', 'pour ' + x.mois_lib); lh('deja', 'rien de côté pour l’instant');
       out.push(carteGros('À mettre de côté chaque mois', eur(x.par_mois), pc(x.pct) + ' de tes revenus, pendant ' + x.n + ' mois'));
       out.push(liste([ligne({ titre: 'Ton épargne moyenne', val: eur(b.epargne) + ' /mois' }),
-        ligne({ titre: x.epargne_reste >= 0 ? 'Il te resterait à épargner' : 'Il manquerait chaque mois', val: eur(Math.abs(x.epargne_reste)), valCls: x.epargne_reste < 0 ? 'neg' : '' })], true));
+        ligne({ titre: x.epargne_reste >= 0 ? 'Il te resterait à épargner' : 'Il manquerait chaque mois', val: eur(Math.abs(Math.round(b.epargne) - Math.round(x.par_mois))), valCls: x.epargne_reste < 0 ? 'neg' : '' })], true));
     }
-    if (hyps.length) { const p = el('p', 'v-note'); p.append(el('span', 'v-hyp', 'hypothèses'), ' ' + hyps.join(' · ') + '.'); p.style.margin = '-4px 4px 12px'; out.unshift(p); }
+    if (hyps.length) { const p = el('p', 'v-note'); p.append(el('span', 'v-hyp', 'hypothèses'), ' ' + hyps.join(' · ') + '.'); p.style.margin = '0 4px 12px'; out.unshift(p); }
     out.push(note((b.reel ? 'Calculs à partir de ta moyenne réelle (' + calc.vue.reel.mois.length + ' mois, hors revenus exceptionnels) : ' : 'Calculs à partir de ton budget de référence : ') + eur(b.revenus) + ' de revenus, ' + eur(b.depenses) + ' de dépenses et ' + eur(b.epargne) + ' d’épargne par mois.'));
     zone.replaceChildren(...out);
   };
   const corpsProj = () => {
-    const out = [note('Réponds à ce que tu sais : le reste est remplacé par une hypothèse, marquée en bleu.')];
-    out[0].style.margin = '0 4px 14px';
+    const out = [];
     const seg = el('div', 'v-segment'); seg.setAttribute('role', 'group');
     SCEN.forEach(([k, t]) => { const b = el('button', '', t); b.type = 'button'; b.setAttribute('aria-pressed', String(scen === k)); b.onclick = () => { scen = k; dash.draw('v_page'); }; seg.append(b); });
-    out.push(seg);
+    out.push(seg, section(TITRE_SCEN[scen]));
     const zone = el('div');
     out.push(liste(QUESTIONS[scen].map(([k, lib, unite]) => {
       const row = el('label', 'v-ligne'), t = el('div', 'v-txt'); t.append(el('b', '', lib));
       const inp = el('input', 'v-champ'), estMois = unite === 'mois';
       if (estMois) { inp.type = 'month'; inp.style.width = '150px'; inp.value = repProj[scen][k] || ''; }
-      else { inp.setAttribute('inputmode', 'decimal'); inp.placeholder = 'Je ne sais pas'; inp.value = repProj[scen][k] === undefined || repProj[scen][k] === '' ? '' : String(repProj[scen][k]).replace('.', ','); }
+      else { inp.setAttribute('inputmode', 'decimal'); inp.placeholder = '?'; inp.value = repProj[scen][k] === undefined || repProj[scen][k] === '' ? '' : String(repProj[scen][k]).replace('.', ','); }
       inp.oninput = () => {
         const n = estMois ? inp.value : (inp.value.trim() === '' ? '' : nombre(inp.value));
         repProj[scen][k] = n === '' || (typeof n === 'number' && !isFinite(n)) ? '' : n;
         try { localStorage.setItem('budget-proj', JSON.stringify(repProj)); } catch (e) {}
         resultatProj(zone);
       };
-      const u = el('span', 'v-gris', estMois ? '' : unite); u.style.cssText = 'font-size:15px;min-width:28px';
+      const u = el('span', 'v-gris v-unite', estMois ? '' : unite);
       row.append(t, inp, u); return row;
     }), true));
     out.push(zone);
     resultatProj(zone);
-    return out;
+    const bloc = el('div', 'v-proj'); bloc.append(...out);
+    return [bloc];
   };
-  const pageProj = () => pousser({ retour: 'Patrimoine', titre: () => 'Projections', corps: corpsProj });
+  const pageProj = () => pousser({ retour: 'Épargne', titre: () => 'Et si…', sous: () => 'Laisse vide ce que tu ne sais pas.', corps: corpsProj });
 
   // Placements : feuille de saisie (une saisie invalide garde la feuille ouverte, avec l'erreur)
   let enCours = null;
@@ -508,7 +508,7 @@
     const T = {
       livret: ['Livret A', 'Valeur aujourd’hui. Ensuite, l’appli suit seule les virements depuis et vers le livret, et ajoute chaque 1er janvier les intérêts estimés avec le taux indiqué.', [...champ(0, 'Valeur (€)', p.livret), ...champ(1, 'Taux annuel (%)', p.livret_taux)]],
       pea: ['PEA', 'Valeur affichée dans ton appli de bourse aujourd’hui.', champ(0, 'Valeur (€)', p.pea)],
-      tr: ['Trade Republic', 'Le plus simple : importe l’export CSV de Trade Republic (bouton en haut de Patrimoine). Sinon, tape le solde espèces.', champ(0, 'Solde espèces (€)', p.tr)],
+      tr: ['Trade Republic', 'Le plus simple : importe l’export CSV de Trade Republic (bouton d’import, en haut de Patrimoine). Sinon, tape le solde espèces.', champ(0, 'Solde espèces (€)', p.tr)],
       pret: ['Prêt étudiant', 'Capital restant dû aujourd’hui, d’après ton tableau d’amortissement.', [...champ(0, 'Capital restant (€)', p.dette), ...champ(1, 'Taux annuel (%)', P.pret && P.pret.taux), ...champ(2, 'Mensualité (€)', P.pret && P.pret.mensualite), ...champ(3, 'Mois du déblocage (AAAA-MM, facultatif)', P.pret && P.pret.debut, 'texte')]]
     }[k];
     $('pl-titre').textContent = T[0]; $('pl-aide').textContent = T[1]; $('pl-champs').replaceChildren(...T[2]);
@@ -518,19 +518,19 @@
   // ================= Opérations =================
   $('v-q').addEventListener('input', () => { ops.limite = 120; dash.draw('v_ops'); });
   dash.draw('v_ops_filtres', (c) => {
-    const v = V(), mt = v.epargne.cle, box = el('div', 'v-filtres');
-    const puce = (t, on, go) => { const b = el('button', 'v-puce' + (on ? ' on' : ''), t); b.type = 'button'; b.setAttribute('aria-pressed', String(on)); b.onclick = go; box.append(b); };
+    const v = V(), mt = v.epargne.cle;
     const changer = (o) => { Object.assign(ops, o, { limite: 120 }); dash.draw('v_ops_filtres'); dash.draw('v_ops'); };
-    puce(cap(MOIS_L[Number(v.mc.slice(5, 7)) - 1]), ops.mois === v.mc && !ops.depuis, () => changer({ mois: v.mc, depuis: '' }));
-    puce(cap(MOIS_L[Number(mt.slice(5, 7)) - 1]), ops.mois === mt && !ops.depuis, () => changer({ mois: mt, depuis: '' }));
-    puce('Tout', !ops.mois && !ops.depuis, () => changer({ mois: '', depuis: '' }));
+    const seg = el('div', 'v-segment'); seg.setAttribute('role', 'group');
+    [[cap(MOIS_L[Number(v.mc.slice(5, 7)) - 1]), ops.mois === v.mc && !ops.depuis, { mois: v.mc, depuis: '' }], [cap(MOIS_L[Number(mt.slice(5, 7)) - 1]), ops.mois === mt && !ops.depuis, { mois: mt, depuis: '' }], ['Tout', !ops.mois && !ops.depuis, { mois: '', depuis: '' }]]
+      .forEach(([t, on, o]) => { const b = el('button', '', t); b.type = 'button'; b.setAttribute('aria-pressed', String(on)); b.onclick = () => changer(o); seg.append(b); });
+    const box = el('div', 'v-filtres');
     const blocs = Array.from(new Set((dash.data('operations').data || []).map((r) => r.bloc))).sort();
-    const sel = el('select', 'v-puce' + (ops.bloc ? ' on' : '')); sel.setAttribute('aria-label', 'Catégorie');
+    const menu = el('label', 'v-puce v-menu' + (ops.bloc ? ' on' : '')), sel = el('select'); sel.setAttribute('aria-label', 'Catégorie');
     sel.append(new Option('Toutes les catégories', ''), ...blocs.map((b) => new Option(b, b))); sel.value = ops.bloc;
-    sel.onchange = () => changer({ bloc: sel.value, poste: '' }); box.append(sel);
+    sel.onchange = () => changer({ bloc: sel.value, poste: '' }); menu.append(sel, dessin('chev', 14)); box.append(menu);
     if (ops.poste) { const b = el('button', 'v-puce on'); b.type = 'button'; b.append(ops.poste, dessin('croix', 14)); b.setAttribute('aria-label', 'Retirer le filtre ' + ops.poste); b.onclick = () => changer({ poste: '' }); box.append(b); }
     if (ops.depuis) { const b = el('button', 'v-puce on'); b.type = 'button'; b.append('Depuis janvier', dessin('croix', 14)); b.onclick = () => changer({ depuis: '' }); box.append(b); }
-    c.replaceChildren(box);
+    c.replaceChildren(seg, box);
   });
   dash.draw('v_ops', (c) => {
     if (!ops.mois && !ops.bloc && !ops.poste && !ops.depuis && ops.init === undefined) { ops.init = true; ops.mois = V().mc; dash.draw('v_ops_filtres'); }
@@ -539,13 +539,13 @@
       (!q || (r.libelle + ' ' + r.poste + ' ' + r.bloc).toLowerCase().includes(q)))
       .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.id - a.id));
     const total = l.reduce((s, r) => s + Number(r.montant), 0), out = [el('p', 'v-note', l.length + ' opération' + (l.length > 1 ? 's' : '') + ' · ' + signe2(total))];
-    out[0].style.margin = '10px 4px 0';
+    out[0].style.margin = '2px 4px 0';
     let jour = null, rows = [];
     const fermer = () => { if (rows.length) out.push(liste(rows)); rows = []; };
     l.slice(0, ops.limite).forEach((r) => {
       if (r.date !== jour) { fermer(); jour = r.date; out.push(el('h3', 'v-jour', dateLongue(r.date))); }
       const nc = r.bloc === 'Non classé', m = Number(r.montant);
-      rows.push(ligne({ ic: nc ? 'etiquette' : icone(r.poste), ton: nc ? 'var(--orange)' : ton(r.bloc), titre: r.libelle.replace(/\s+/g, ' '), sous: nc ? 'À classer' : r.poste, sousCls: nc ? 'orange' : '',
+      rows.push(ligne({ ic: nc ? 'etiquette' : icone(r.poste), ton: nc ? 'var(--orange)' : ton(r.bloc), court: true, titre: M.nomCourt(r.libelle), sous: nc ? 'À classer' : r.mois_epargne ? r.poste + ' · compté pour ' + nomDe(r.mois_epargne) : r.poste, sousCls: nc ? 'orange' : '',
         val: signe2(m), valCls: m > 0 ? 'pos' : '', data: { op: String(r.id) }, clic: () => {} }));
     });
     fermer();
@@ -567,7 +567,7 @@
       b.onclick = () => A.maj(Object.assign({}, A.bundle(), { regles_perso: l.filter((x, j) => j !== i) }), 'Règle « ' + p.marchand + ' » supprimée.'); r.append(b); return r; })),
       el('p', 'v-note', 'Les supprimer ne change pas les opérations déjà classées.')];
   };
-  const corpsRegles = () => [liste((dash.data('regles').data || []).map((r) => ligne({ titre: r.regle, sous: r.poste + ' · ' + r.bloc })))];
+  const corpsRegles = () => { const l = dash.data('regles').data || []; return l.length ? [liste(l.map((r) => ligne({ titre: r.regle, sous: r.poste + ' · ' + r.bloc })))] : [note('Aucune règle pour l’instant.')]; };
   const corpsCalcul = () => [liste([
     'Revenus du mois : salaire versé à la fin du mois précédent, plus la CAF et Action Logement reçues dans le mois.',
     'Somme à partager : revenus du mois, moins les charges fixes prévues, la part mensuelle des enveloppes et les montants prévus des charges variables.',
@@ -577,35 +577,50 @@
     'Exclus : mouvements internes, titres-restaurant, revenus exceptionnels et dépenses hors budget. Les montants sont nets des remboursements.'
   ].map((t) => { const r = el('div', 'v-ligne'); r.append(el('div', 'v-txt', t)); r.querySelector('.v-txt').style.cssText = 'font-size:15px;line-height:1.4;padding:4px 0'; return r; }), true)];
 
+  // Une ligne = un titre et une valeur ; le détail et l'explication sont dans la page qui s'ouvre
+  const serre = (rows) => { const l = liste(rows); l.classList.add('serre'); return l; };
+  const etatSauvegarde = () => {
+    const b = A.bundle(), mod = b.modifie_le, sav = b.sauvegarde_le;
+    if (!sav) return { txt: 'Jamais faite', due: true };
+    if (mod && mod > sav) return { txt: 'À refaire', due: true };
+    return { txt: 'le ' + new Date(sav).toLocaleDateString('fr-FR').slice(0, 5), due: false };
+  };
   dash.draw('v_reglages', (c) => {
-    const v = V(), n = v.normal, b = A.bundle(), p = v.patrimoine, out = [];
-    // Le mois normal en une barre
-    const carte = el('div', 'v-carte'), bar = el('div'), leg = el('div', 'v-gris');
-    bar.style.cssText = 'display:flex;height:12px;border-radius:6px;overflow:hidden;margin-top:8px;gap:2px';
-    leg.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:8px;font-size:13px';
-    const parts = [['Fixes', n.fixes, 'var(--gray)'], ['Variables', n.variables, 'var(--blue)'], ['Enveloppes', n.env, 'var(--orange)'], ['Loisirs', n.loisirs, 'var(--indigo)'], ['Épargne', Math.max(0, n.epargne), 'var(--green)']];
-    parts.forEach(([t, x, co]) => { const i = el('i'); i.style.cssText = 'flex:' + Math.max(0.01, x) + ';background:' + co; bar.append(i); const s = el('span'), d = el('i'); d.style.cssText = 'display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;background:' + co; s.append(d, t + ' ' + nf0.format(Math.round(x))); leg.append(s); });
-    const t = el('div', 'v-gris', 'Un mois normal · ' + eur(n.revenus) + ' de revenus'); t.style.fontSize = '13px';
-    carte.append(t, bar, leg); out.push(carte);
-    out.push(liste([
-      ligne({ ic: 'billet', ton: 'var(--green)', titre: 'Revenus', val: eur(n.revenus), valCls: 'v-gris', clic: () => pageRefs('Revenu', 'Revenus', 'Moyennes d’un mois normal. Le budget du mois suit les revenus vraiment reçus.'), chev: true }),
-      ligne({ ic: 'maison', ton: 'var(--gray)', titre: 'Charges fixes', val: eur(n.fixes), valCls: 'v-gris', clic: () => pageRefs('Charge fixe', 'Charges fixes', 'Montants prélevés chaque mois. Touche un montant pour le modifier.'), chev: true }),
-      ligne({ ic: 'panier', ton: 'var(--blue)', titre: 'Charges variables', val: eur(n.variables), valCls: 'v-gris', clic: () => pageRefs('Charge variable', 'Charges variables', 'Plafonds mensuels fixes.'), chev: true }),
-      ligne({ ic: 'cadeau', ton: 'var(--orange)', titre: 'Enveloppes', sous: eur(n.env * 12) + ' par an', val: eur(n.env) + ' / mois', valCls: 'v-gris', clic: () => pageRefs('Enveloppe annuelle', 'Enveloppes', 'Montants pour l’année. Un douzième part chaque mois dans la caisse des enveloppes.'), chev: true }),
-      ligne({ ic: 'resto', ton: 'var(--indigo)', titre: 'Loisirs', sous: 'Ce mois-ci : ' + eur(v.prevu.loisirs), val: eur(n.loisirs), valCls: 'v-gris', clic: () => pageRefs('Loisir', 'Loisirs', 'Montants d’un mois normal. Chaque mois, le budget loisirs suit les revenus reçus.'), chev: true }),
-      ligne({ ic: 'pieces', ton: 'var(--green)', titre: 'Épargne prévue', sous: 'Ce qui reste d’un mois normal', val: eur(n.epargne), valCls: 'v-gris' })]));
-    out.push(liste([
-      ligne({ ic: 'etiquette', ton: 'var(--orange)', titre: 'Règles « toujours ce marchand »', val: String((b.regles_perso || []).length), valCls: 'v-gris', clic: () => pousser({ retour: 'Réglages', titre: () => 'Mes règles', corps: corpsPerso }), chev: true }),
+    const n = V().normal, b = A.bundle(), out = [], sv = etatSauvegarde();
+    const [iR, iF, iV, iE, iL] = M.entiers([n.revenus, -n.fixes, -n.variables, -n.env, -n.loisirs]);
+    out.push(section('Mon budget d’un mois normal'), serre([
+      ligne({ ic: 'billet', ton: 'var(--green)', titre: 'Revenus', val: eur(iR), clic: () => pageRefs('Revenu', 'Revenus', 'Moyennes d’un mois normal. Le budget du mois suit les revenus vraiment reçus.'), chev: true }),
+      ligne({ ic: 'maison', ton: 'var(--gray)', titre: 'Charges fixes', val: moins(-iF), clic: () => pageRefs('Charge fixe', 'Charges fixes', 'Montants prélevés chaque mois. Touche un montant pour le modifier.'), chev: true }),
+      ligne({ ic: 'panier', ton: 'var(--blue)', titre: 'Charges variables', val: moins(-iV), clic: () => pageRefs('Charge variable', 'Charges variables', 'Plafonds mensuels fixes.'), chev: true }),
+      ligne({ ic: 'cadeau', ton: 'var(--orange)', titre: 'Enveloppes', val: moins(-iE), clic: () => pageRefs('Enveloppe annuelle', 'Enveloppes', 'Montants pour l’année. Un douzième part chaque mois dans la caisse des enveloppes.'), chev: true }),
+      ligne({ ic: 'resto', ton: 'var(--indigo)', titre: 'Loisirs', val: moins(-iL), clic: () => pageRefs('Loisir', 'Loisirs', 'Montants d’un mois normal. Chaque mois, le budget loisirs suit les revenus reçus.'), chev: true }),
+      ligne({ ic: 'pieces', ton: 'var(--green)', titre: 'Épargne prévue', val: eur(iR + iF + iV + iE + iL), total: true })]), serre([ligne({ ic: 'cible', ton: 'var(--blue)', titre: 'Ma répartition 50 / 30 / 20', clic: () => pageRepere(), chev: true })]));
+    out.push(section('Mes données'), serre([
+      ligne({ ic: 'import', ton: 'var(--blue)', titre: 'Importer un relevé', clic: () => $('app-file').click(), chev: true }),
+      ligne({ ic: 'disque', ton: 'var(--blue)', titre: 'Sauvegarder', val: sv.txt, valCls: sv.due ? 'orange' : 'v-gris', clic: () => A.sauvegarder(), chev: true })]));
+    out.push(section('Classement et calculs'), serre([
+      ligne({ ic: 'etiquette', ton: 'var(--orange)', titre: 'Marchands mémorisés', val: String((b.regles_perso || []).length), valCls: 'v-gris', clic: () => pousser({ retour: 'Réglages', titre: () => 'Marchands', corps: corpsPerso }), chev: true }),
       ligne({ ic: 'liste', ton: 'var(--gray)', titre: 'Règles de classement', val: String((dash.data('regles').data || []).length), valCls: 'v-gris', clic: () => pousser({ retour: 'Réglages', titre: () => 'Classement', corps: corpsRegles }), chev: true }),
-      ligne({ ic: 'etincelle', ton: 'var(--indigo)', titre: 'Recalcul de janvier', sous: 'Propose des montants à partir des 12 derniers mois', clic: () => $('app-proposer').onclick(), chev: true }),
+      ligne({ ic: 'etincelle', ton: 'var(--indigo)', titre: 'Recalcul de janvier', clic: () => $('app-proposer').onclick(), chev: true }),
       ligne({ ic: 'calcul', ton: 'var(--blue)', titre: 'Comment c’est calculé', clic: () => pousser({ retour: 'Réglages', titre: () => 'Calculs', corps: corpsCalcul }), chev: true })]));
-    out.push(section('Placements'), liste(lignesComptes(p)));
-    const sav = b.sauvegarde_le;
-    out.push(section('Données'), liste([
-      ligne({ ic: 'disque', ton: 'var(--blue)', titre: 'Sauvegarder', sous: sav ? 'Dernière : ' + new Date(sav).toLocaleDateString('fr-FR') : 'Jamais sauvegardé', sousCls: sav ? '' : 'orange', clic: () => A.sauvegarder(), chev: true }),
-      ligne({ ic: 'import', ton: 'var(--gray)', titre: 'Importer', sous: 'Banque, Trade Republic ou sauvegarde', clic: () => $('app-file').click(), chev: true })]));
+    out.push(note('Tes données restent sur ce téléphone. Sauvegarde après chaque import.'));
+    $('pt-regles').hidden = !sv.due;
     c.replaceChildren(...out);
   });
+
+  // Un titre qui ne tient pas sur sa ligne n'est jamais coupé : un nom d'opération perd ses derniers mots (le libellé complet est dans la fiche),
+  // un autre titre rétrécit jusqu'à 14 px, puis passe sur deux lignes.
+  const ajuster = () => {
+    const r = page ? pageEl : document.querySelector('.bm-page:not([hidden])'); if (!r) return;
+    [...r.querySelectorAll('.v-txt > b')].filter((b) => b.clientWidth && b.scrollWidth > b.clientWidth).forEach((b) => {
+      if (b.dataset.court) { const m = b.textContent.split(' '); while (m.length > 1 && b.scrollWidth > b.clientWidth) { m.pop(); b.textContent = m.join(' '); } }
+      for (let t = 16; t >= 14 && b.scrollWidth > b.clientWidth; t--) b.style.fontSize = t + 'px';
+      if (b.scrollWidth > b.clientWidth) b.style.whiteSpace = 'normal';
+    });
+  };
+  // Après chaque dessin (import, modification, changement d'onglet ou de page), on réajuste ce qui est visible
+  new MutationObserver(() => { clearTimeout(ajuster.t); ajuster.t = setTimeout(ajuster, 0); }).observe($('dash-root'), { childList: true, subtree: true, attributes: true, attributeFilter: ['hidden', 'class'] });
+  ajuster();
 
   majHaut();
 })();
