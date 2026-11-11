@@ -519,7 +519,7 @@
   $('v-q').addEventListener('input', () => { ops.limite = 120; dash.draw('v_ops'); });
   dash.draw('v_ops_filtres', (c) => {
     const v = V(), mt = v.epargne.cle;
-    const changer = (o) => { Object.assign(ops, o, { limite: 120 }); dash.draw('v_ops_filtres'); dash.draw('v_ops'); };
+    const changer = (o) => { Object.assign(ops, o, { limite: 120 }); dash.draw('v_ops_filtres'); dash.draw('v_ops'); window.scrollTo(0, 0); };
     const seg = el('div', 'v-segment'); seg.setAttribute('role', 'group');
     [[cap(MOIS_L[Number(v.mc.slice(5, 7)) - 1]), ops.mois === v.mc && !ops.depuis, { mois: v.mc, depuis: '' }], [cap(MOIS_L[Number(mt.slice(5, 7)) - 1]), ops.mois === mt && !ops.depuis, { mois: mt, depuis: '' }], ['Tout', !ops.mois && !ops.depuis, { mois: '', depuis: '' }]]
       .forEach(([t, on, o]) => { const b = el('button', '', t); b.type = 'button'; b.setAttribute('aria-pressed', String(on)); b.onclick = () => changer(o); seg.append(b); });
@@ -552,6 +552,9 @@
     if (l.length > ops.limite) { const b = el('button', 'app-btn v-plus', 'Afficher plus'); b.type = 'button'; b.onclick = () => { ops.limite += 200; dash.draw('v_ops'); }; out.push(b); }
     if (!l.length) out.push(el('p', 'v-note', 'Aucune opération ne correspond.'));
     c.replaceChildren(...out);
+    // Sur iPhone, une liste qui raccourcit alors que la page est défilée plus bas laisse Safari décalé : les feuilles qui s'ouvrent
+    // ne répondent plus au toucher (menu du poste). On ramène donc la page dans la liste.
+    const max = Math.max(0, document.documentElement.scrollHeight - innerHeight); if (window.scrollY > max) window.scrollTo(0, max);
   });
 
   // ================= Réglages =================
