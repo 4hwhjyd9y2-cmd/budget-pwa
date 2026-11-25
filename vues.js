@@ -96,6 +96,13 @@
     if (o.chev) r.append(chev());
     return r;
   };
+  // Interrupteur iOS : toute la ligne est touchable
+  const interrupteur = (o) => {
+    const r = el('label', 'v-ligne'); if (o.ic) r.append(carre(o.ic, o.ton));
+    const t = el('div', 'v-txt'); t.append(el('b', '', o.titre)); if (o.sous) t.append(el('small', '', o.sous));
+    const c = document.createElement('input'); c.type = 'checkbox'; c.className = 'v-switch'; c.setAttribute('role', 'switch'); c.checked = !!o.on; c.onchange = () => o.change(c.checked);
+    r.append(t, c); return r;
+  };
   const liste = (rows, nu) => { const l = el('div', 'v-liste' + (nu ? ' nu' : '')); l.append(...rows); return l; };
   const section = (titre, bouton, go) => { const h = el('h2', 'v-section', titre); if (bouton) { const b = el('button', '', bouton); b.type = 'button'; b.onclick = go; h.append(b); } return h; };
   const barre = (pct, couleur, repere) => { const b = el('div', 'v-barre'), i = el('i'); i.style.width = Math.max(0, Math.min(100, pct * 100)) + '%'; i.style.background = couleur; b.append(i); if (repere !== undefined && repere !== null) { const m = el('b'); m.style.left = Math.min(99, repere * 100) + '%'; b.append(m); } return b; };
@@ -170,26 +177,105 @@
   dash.draw('v_mois_titre', (h) => { h.textContent = cap(MOIS_L[Number(V().mc.slice(5, 7)) - 1]); });
   dash.draw('v_mois_sous', (p) => { const e = A.bundle().export; p.textContent = e ? 'Relevé du ' + Number(e.slice(8, 10)) + ' ' + moisCourt(e) : ''; });
 
-  const finAjustee = () => { const v = V(), e = v.epargne; return v.fin - (e.laisse ? 0 : e.manque) + Math.min(0, v.caisse.valeur); };
+  // Le grand chiffre : ce que tu peux dépenser, à partir du solde du compte. Ses lignes sont arrondies une à une
+  // et le chiffre est leur somme, comme dans la page qui l'explique.
+  const chiffreDispo = () => { const d = V().dispo; if (!d) return null; const n = M.entiers(d.lignes.map((l) => l.montant)); return { d, n, total: som(n) }; };
+  // Sans solde dans les relevés : le reste du budget (loisirs et charges variables, moins le trou de la caisse)
+  const peuxDepenser = () => { const x = chiffreDispo(); return x ? x.total : Math.round(V().reste_budget); };
   dash.draw('v_heros', (c) => {
-    const v = V(), m = vueMois(), trop = m.reste < 0, fin = v.nbJours + ' ' + moisCourt(v.mc);
-    const j = barre(m.B > 0 ? m.D / m.B : 0, trop ? 'var(--red)' : 'var(--blue)', v.auj / v.nbJours); j.classList.add('grande');
-    const jl = el('div', 'v-entre'); jl.append(el('span', '', eur(m.D) + ' dépensés'), el('span', '', 'sur ' + eur(m.B)));
+    const v = V(), x = chiffreDispo();
     const b = el('button', 'app-btn primary v-bouton', 'Je veux acheter…'); b.type = 'button'; b.onclick = () => ouvrirAchat();
-    c.replaceChildren(el('div', 'lab', trop ? 'Tu as dépassé ton budget de' : 'Il te reste à dépenser'), el('div', 'montant' + (trop ? ' neg' : ''), eur(Math.abs(m.reste))),
-      el('div', 'lab', !trop && m.jours > 0 ? 'soit ' + eur(m.reste / m.jours) + ' par jour jusqu’au ' + fin : 'Le mois se termine le ' + fin), j, jl, b);
+    if (!x) {
+      const m = vueMois(), trop = m.reste < 0, fin = v.nbJours + ' ' + moisCourt(v.mc);
+      const j = barre(m.B > 0 ? m.D / m.B : 0, trop ? 'var(--red)' : 'var(--blue)', v.auj / v.nbJours); j.classList.add('grande');
+      const jl = el('div', 'v-entre'); jl.append(el('span', '', eur(m.D) + ' dépensés'), el('span', '', 'sur ' + eur(m.B)));
+      c.replaceChildren(el('div', 'lab', trop ? 'Tu as dépassé ton budget de' : 'Il te reste à dépenser'), el('div', 'montant' + (trop ? ' neg' : ''), eur(Math.abs(m.reste))),
+        el('div', 'lab', !trop && m.jours > 0 ? 'soit ' + eur(m.reste / m.jours) + ' par jour jusqu’au ' + fin : 'Le mois se termine le ' + fin), j, jl, b);
+      return;
+    }
+    const val = x.total, trop = val < 0, fin = x.d.fin_jour + ' ' + moisCourt(x.d.fin);
+    const compte = el('button', 'v-compte'); compte.type = 'button'; compte.onclick = () => pageDispo();
+    const droite = el('span', '', eur(x.n[0])); droite.append(dessin('chev', 14));
+    compte.append(el('span', '', 'Sur ton compte'), droite);
+    c.replaceChildren(el('div', 'lab', trop ? 'Tu as dépassé de' : 'Tu peux dépenser'), el('div', 'montant' + (trop ? ' neg' : ''), eur(Math.abs(val))),
+      el('div', 'lab', trop ? 'Ce qui dépasse sera pris sur ton épargne' : x.d.jours > 0 ? 'soit ' + eur(val / x.d.jours) + ' par jour jusqu’au ' + fin : 'Le mois se termine le ' + fin), compte, b);
   });
+
+  // Ce que tu peux dépenser : le calcul ligne par ligne, les prélèvements attendus (« pas ce mois-ci »),
+  // les rentrées exceptionnelles du mois (« Ajouter à l'épargne ») et le coussin
+  const pageDispo = () => pousser({
+    retour: 'Ce mois-ci', titre: () => 'Tu peux dépenser',
+    sous: () => { const d = V().dispo; return d ? 'Relevé du ' + Number(d.date.slice(8, 10)) + ' ' + moisCourt(d.date) : ''; },
+    corps: () => {
+      const v = V(), x = chiffreDispo(); if (!x) return [note('Importe un relevé récent pour voir ce calcul.')];
+      const d = x.d, out = [], k = (v.epargne_mois[0] || {}).calcul || {};
+      const sousEp = (l) => (l.id !== 'epargne' || d.bascule ? l.sous : k.ajoute > 0 ? 'Dont ' + eur(k.ajoute) + ' de rentrées' : v.pct.epargne + ' % du reste' + (k.report < 0 ? ', −' + eur(-k.report) + ' de report' : ''));
+      const rows = d.lignes.map((l, i) => ({ l, n: x.n[i] })).filter((y, i) => i === 0 || y.n !== 0)
+        .map((y, i) => ligne({ titre: y.l.libelle, sous: sousEp(y.l) || null, val: i === 0 ? eur(y.n) : (y.n < 0 ? '−' : '+') + eur(Math.abs(y.n)) }));
+      rows.push(ligne({ titre: x.total < 0 ? 'Dépassé de' : 'Tu peux dépenser', val: eur(Math.abs(x.total)), valCls: x.total < 0 ? 'neg' : '', total: true }));
+      out.push(calcul(rows));
+      if (d.bascule) out.push(note('Ton salaire est arrivé : ce chiffre vaut jusqu’à la fin ' + de(nomDe(d.fin)) + '. Ce que ' + nomDe(v.mc) + ' n’a pas dépensé va à l’épargne.'));
+      // Prélèvements attendus : toucher une charge qui ne passera pas ce mois-là
+      const fx = d.fixes;
+      if (fx.length) {
+        out.push(section('Prélèvements attendus'));
+        out.push(liste(fx.map((f) => ligne({ ic: icone(f.poste), ton: f.saute ? 'var(--gray)' : 'var(--blue)', titre: f.poste,
+          sous: f.saute ? 'Pas ce mois-ci' : (d.bascule ? cap(nomDe(f.mois)) : 'Attendu') + (f.jour ? ', vers le ' + f.jour : ''), sousCls: f.saute ? 'orange' : '',
+          val: eur2(f.attendu), valCls: f.saute ? 'v-gris' : '', clic: () => sauter(f) }))));
+        out.push(note('Touche un prélèvement qui ne passera pas ce mois-ci : il n’est plus retiré du chiffre.'));
+      }
+      // Rentrées exceptionnelles du mois
+      if (d.exc.length && !d.bascule) {
+        out.push(section('Rentrées ' + de(nomDe(v.mc))));
+        d.exc.forEach((r) => {
+          const a = ligne({ titre: r.vers_epargne ? 'Retirer de l’épargne' : 'Ajouter à l’épargne', clic: () => versEpargne(r) }); a.classList.add('action');
+          out.push(liste([ligne({ ic: 'billet', ton: 'var(--green)', court: true, titre: M.nomCourt(r.libelle), sous: r.vers_epargne ? 'Ajoutée à l’épargne' : 'À dépenser', val: '+' + eur2(r.montant), valCls: 'pos' }), a]));
+        });
+        out.push(note('Une rentrée que tu ne dépenses pas va de toute façon à l’épargne à la fin du mois. L’ajouter tout de suite la met à l’abri.'));
+      }
+      out.push(section('Réglage'), liste([ligne({ ic: 'bouee', ton: 'var(--teal)', titre: 'Coussin à garder', val: eur(d.coussin), clic: () => regler('coussin'), chev: true })]));
+      out.push(note('Ce chiffre part du solde de ton dernier relevé. Le coussin reste toujours sur le compte : il n’est ni à dépenser, ni à épargner.'));
+      return out;
+    }
+  });
+  // Reporter ou non l'écart d'un mois sur le suivant (annulable depuis le message)
+  const reporter = (cle, on, suivant) => {
+    const b = A.bundle(), r = Object.assign({}, b.reporter || {}, { [cle]: on });
+    A.maj(Object.assign({}, b, { reporter: r }), cap(nomDe(cle)) + (on ? ' : reporté sur ' : ' : non reporté sur ') + nomDe(suivant) + '.');
+  };
+  // « Je ne le vire pas » : le reste à virer d'un mois redevient dépensable à partir du mois en cours
+  const nePasVirer = (cle, on) => {
+    const b = A.bundle(), n = Object.assign({}, b.non_vires || {});
+    if (on) n[cle] = V().mc; else delete n[cle];
+    A.maj(Object.assign({}, b, { non_vires: n }), on ? cap(nomDe(cle)) + ' : gardé, plus à virer.' : cap(nomDe(cle)) + ' : de nouveau à virer.');
+  };
+  // « Pas ce mois-ci » : la charge fixe n'est plus attendue ce mois-là (annulable depuis le message)
+  const sauter = (f) => {
+    const b = A.bundle(), s = Object.assign({}, b.fixes_sautes || {}), l = (s[f.mois] || []).filter((id) => id !== f.id);
+    if (!f.saute) l.push(f.id);
+    if (l.length) s[f.mois] = l; else delete s[f.mois];
+    A.maj(Object.assign({}, b, { fixes_sautes: s }), f.saute ? f.poste + ' : de nouveau attendu.' : f.poste + ' : pas ce mois-ci.');
+  };
+  const versEpargne = (r) => {
+    const b = A.bundle(), ops2 = b.operations.map((o) => (o.id === r.id ? Object.assign({}, o, { vers_epargne: !r.vers_epargne }) : o));
+    A.maj(Object.assign({}, b, { operations: ops2 }), r.vers_epargne ? 'Rentrée remise dans ce que tu peux dépenser.' : 'Rentrée ajoutée à l’épargne ' + de(nomDe(V().mc)) + '.');
+  };
 
   // Épargne par mois, en euros entiers (servent à Ce mois-ci et à l'onglet Épargne)
   const nomDe = (k) => MOIS_L[Number(k.slice(5, 7)) - 1];
   // Euros entiers d'un mois : chaque ligne du calcul arrondie seule, le total calculé à partir des lignes affichées
   const chiffresMois = (x) => {
-    const k = x.calcul, l = x.etat === 'prevu'
-      ? [['Aujourd’hui', k.aujourdhui, 'Revenus moins dépenses passées'], ['Reste des loisirs et variables', -k.reste_budget], ['Charges fixes à venir', -k.fixes_venir], ['Part des enveloppes', -k.env_venir], ['Report du mois d’avant', k.report], ['Trou de la caisse', -k.trou]]
-      : [['Revenus ' + de(nomDe(x.cle)), k.revenus], ['Charges fixes', -k.fixes], ['Loisirs et variables', -k.depenses], ['Part des enveloppes', -k.enveloppes], ['Trou de la caisse', -k.trou], ['Report du mois d’avant', k.report]];
+    const k = x.calcul, ec = x.etat === 'prevu' && !x.bascule;
+    const rep = [k.depart ? 'Argent d’avant le budget' : ec || k.reporte !== false ? 'Report du mois d’avant' : 'Écart du mois d’avant', k.report, k.depart ? 'Sur le compte au départ du suivi' : ec || k.reporte !== false ? '' : 'Non reporté : pris sur les dépenses'];
+    const lib = ['Gardé pour dépenser', k.libere || 0, 'Non viré le mois d’avant'];
+    const l = ec
+      ? [[k.pct + ' % du reste du mois', k.part, 'Ta part épargne'], rep, ['Rentrées ajoutées', k.ajoute], ['Rattrapé sur tes dépenses', k.retenu || 0], ['Dépassement à ce jour', k.depasse]]
+      : [['Revenus ' + de(nomDe(x.cle)), k.revenus], ['Charges fixes', -k.fixes - (k.fixes_venir || 0), k.fixes_venir ? 'Dont ' + eur(k.fixes_venir) + ' encore attendus' : ''], ['Loisirs et variables', -k.depenses], ['Part des enveloppes', -k.enveloppes],
+        ['Trou de la caisse', -k.trou], ['Rentrées exceptionnelles', k.exc], ['Hors budget et à classer', k.hors], ['Mouvements internes', k.interne, x.retraits ? 'Retraits d’épargne compris' : ''], rep, lib];
     const lignes = l.map(([t, n, s]) => ({ t, n: Math.round(n), s })).filter((y, i) => i === 0 || y.n !== 0);
     const a = som(lignes.map((y) => y.n)), v = Math.round(x.vire);
-    return { lignes, a, v, reste: Math.max(0, a - v), trop: Math.max(0, v - Math.max(0, a)), retraits: Math.round(x.retraits) };
+    const nv = x.non_vire > 0 ? Math.max(0, a - v) : 0;
+    return { lignes, a, v, nv, reste: nv ? 0 : Math.max(0, a - v), trop: Math.max(0, v - Math.max(0, a)), retraits: Math.round(x.retraits) };
   };
   const vires = (v) => eur(v) + (v > 1 ? ' virés' : ' viré');
   const termines = () => (V().epargne_mois || []).filter((x) => x.etat === 'termine');
@@ -220,7 +306,7 @@
     sous: () => { const G = vueMois()[bloc === 'Loisirs' ? 'loi' : 'vari']; return eur(G.d) + ' dépensés sur ' + eur(G.b) + ' · ' + (G.reste >= 0 ? eur(G.reste) + ' restants' : eur(-G.reste) + ' de trop'); },
     corps: () => [
       liste(vueMois()[bloc === 'Loisirs' ? 'loi' : 'vari'].lignes.map((p) => ligne(Object.assign({ haut: true, ic: icone(p.r.poste), ton: p.reste < 0 ? 'var(--red)' : GROUPES[bloc][2], titre: p.r.poste, apres: jauge(p.d, p.b, GROUPES[bloc][2]), sous: eur(p.d) + ' sur ' + eur(p.b), chev: true, clic: () => voirOps(p.r) }, resteTxt(p.reste))))),
-      note(bloc === 'Loisirs' ? 'Touche un poste pour voir ses opérations. Le budget loisirs suit tes revenus du mois ; il se règle dans Réglages.' : 'Touche un poste pour voir ses opérations. Ces plafonds sont fixes ; ils se règlent dans Réglages.')
+      note('Touche un poste pour voir ses opérations. ' + (bloc === 'Loisirs' ? 'Les loisirs reçoivent ' + V().pct.loisirs : 'Les charges variables reçoivent ' + V().pct.variables) + ' % du reste du mois (revenus moins charges fixes) ; ça se règle dans Réglages.')
     ]
   });
   const pageEnv = () => pousser({
@@ -240,7 +326,8 @@
       const r = ligne({ haut: true, ic: 'calendrier', ton: 'var(--gray)', titre: nom, apres: barre(k.a > 0 ? k.v / k.a : 0, 'var(--gray)'), sous: vires(k.v) + ' sur ' + eur(Math.max(0, k.a)) + ' prévus', val: eur(k.reste), valSous: 'prévu', valCls: 'v-gris', chev: true, clic: ouvrir });
       r.classList.add('prevu'); return r;
     }
-    if (k.a < 0) return ligne({ haut: true, ic: 'baisse', ton: 'var(--orange)', titre: nom, sous: 'Fini à ' + eur(k.a), val: '0 €', valSous: x.laisse ? 'laissé filer' : 'reporté', chev: true, clic: ouvrir });
+    if (k.a < 0) return ligne({ haut: true, ic: 'baisse', ton: 'var(--orange)', titre: nom, sous: 'Fini à ' + eur(k.a), val: '0 €', valSous: x.reporte ? 'reporté' : 'non reporté', chev: true, clic: ouvrir });
+    if (k.nv > 0) return ligne({ haut: true, ic: 'calendrier', ton: 'var(--gray)', titre: nom, apres: barre(k.a > 0 ? k.v / k.a : 0, 'var(--gray)'), sous: vires(k.v) + ' sur ' + eur(k.a), val: eur(k.nv), valSous: 'gardé', valCls: 'v-gris', chev: true, clic: ouvrir });
     if (k.reste > 0) return ligne({ haut: true, ic: 'calendrier', ton: 'var(--red)', titre: nom, apres: barre(k.a > 0 ? k.v / k.a : 0, 'var(--green)'), sous: vires(k.v) + ' sur ' + eur(k.a), val: eur(k.reste), valSous: 'à virer', valCls: 'neg', chev: true, clic: ouvrir });
     const r = ligne({ haut: true, ic: 'ok', ton: 'var(--green)', titre: nom, apres: barre(1, 'var(--green)'), sous: vires(k.v) + ' sur ' + eur(k.a), val: '', valSous: k.trop ? '+' + eur(k.trop) : 'soldé', chev: true, clic: ouvrir });
     const vv = r.querySelector('.v-val'); vv.classList.add('pos'); vv.prepend(dessin('ok', 20));
@@ -249,14 +336,14 @@
   dash.draw('v_ep_sous', (p) => { const e = A.bundle().export; p.textContent = e ? 'Relevé du ' + Number(e.slice(8, 10)) + ' ' + moisCourt(e) : ''; });
   dash.draw('v_ep', (c) => {
     const v = V(), out = [], total = aVirerAffiche();
-    const dus = termines().filter((x) => chiffresMois(x).reste > 0).map((x) => nomDe(x.cle));
+    const dus = termines().filter((x) => chiffresMois(x).reste > 0).map((x) => nomDe(x.cle)).reverse();
     const h = el('div', 'v-carte v-heros');
     if (total > 0) h.append(el('div', 'lab', 'À virer aujourd’hui'), el('div', 'montant', eur(total)), el('div', 'lab', 'Pour ' + (dus.length > 1 ? dus.slice(0, -1).join(', ') + ' et ' + dus[dus.length - 1] : dus[0])));
     else h.append(el('div', 'lab', 'À virer aujourd’hui'), el('div', 'montant pos', '0 €'), el('div', 'lab', termines().length ? 'Tout est viré' : 'Pas encore de mois terminé'));
     out.push(h, section('Mois par mois'), liste((v.epargne_mois || []).map(ligneMois)));
     const k = v.caisse.valeur;
     out.push(liste([
-      ligne({ ic: 'caisse', ton: k < 0 ? 'var(--orange)' : 'var(--green)', titre: 'Caisse des enveloppes', sous: k < 0 ? 'À rattraper sur l’épargne' : 'D’avance pour les enveloppes', val: signe(k), valCls: k < 0 ? 'neg' : '' }),
+      ligne({ ic: 'caisse', ton: k < 0 ? 'var(--orange)' : 'var(--green)', titre: 'Caisse des enveloppes', sous: k < 0 ? 'Dépassée, pris sur le mois' : 'D’avance pour les enveloppes', val: signe(k), valCls: k < 0 ? 'neg' : '' }),
       ligne({ ic: 'boussole', ton: 'var(--teal)', titre: 'Et si… (projections)', clic: () => pageProj(), chev: true })]));
     $('pt-epargne').hidden = !(total > 0);
     c.replaceChildren(...out);
@@ -271,13 +358,27 @@
       const k = chiffresMois(x), prevu = x.etat === 'prevu', out = [];
       out.push(calcul(k.lignes.map((y, i) => ligne({ titre: y.t, sous: y.s, val: i === 0 ? (prevu ? signe(y.n) : eur(y.n)) : (y.n < 0 ? '−' + eur(-y.n) : '+' + eur(y.n)) }))
         .concat([ligne({ titre: prevu ? 'Prévu à épargner' : 'À épargner', val: eur(k.a), valCls: k.a < 0 ? 'neg' : '', total: true })])));
-      out.push(calcul([ligne({ titre: 'Déjà viré', val: moins(k.v) }), ligne({ titre: 'Reste à virer', val: eur(k.reste), total: true })]));
-      if (prevu) out.push(note('C’est une prévision : le reste du budget est compté comme dépensé au rythme prévu. Le montant exact sera connu à la fin du mois.'));
-      else if (k.a < 0) {
-        const b = el('button', 'app-btn v-bouton', x.laisse ? 'Finalement, le reporter' : 'Laisser filer'); b.type = 'button';
-        b.onclick = () => { const bu = A.bundle(), l = Object.assign({}, bu.deficits_laisses || {}); if (x.laisse) delete l[cle]; else l[cle] = true; A.maj(Object.assign({}, bu, { deficits_laisses: l }), x.laisse ? 'Le manque sera reporté sur le mois suivant.' : 'Manque laissé filer : rien n’est reporté.'); };
-        out.push(b, note(x.laisse ? 'Laissé filer : ce manque a été pris sur ton compte courant, sans être déduit du mois suivant.' : 'Ce manque est déduit du mois suivant. Laisser filer : tu acceptes qu’il soit pris sur ton compte courant.'));
-      } else if (k.trop) out.push(note(eur(k.trop) + ' virés en plus : ils réduisent ce qu’il faudra virer le mois suivant.'));
+      out.push(calcul([ligne({ titre: 'Déjà viré', val: moins(k.v) })].concat(k.nv ? [ligne({ titre: 'Gardé, non viré', val: moins(k.nv) })] : [], [ligne({ titre: 'Reste à virer', val: eur(k.reste), total: true })])));
+      if (prevu) {
+        out.push(note(x.bascule ? 'Ton salaire est arrivé : ce montant est ce que le mois laisse à ce jour.' : 'C’est une prévision : elle suppose que tu dépenses ce que tu peux encore dépenser, ni plus, ni moins. Ce que tu ne dépenses pas s’y ajoutera à la fin du mois.'));
+        const nr = Math.round(-(x.calcul.non_reporte || 0));
+        if (!x.bascule && nr > 0) out.push(note('L’écart ' + de(nomDe(v.epargne.cle)) + ' (' + eur(nr) + ') n’est pas reporté : ' + nomDe(cle) + ' garde son objectif. Ça se change dans ' + nomDe(v.epargne.cle) + '.'));
+      }
+      // Le choix du report : sur le dernier mois terminé, ou sur le mois en cours une fois le salaire arrivé
+      const ecart = Math.round(x.ecart || 0);
+      if ((x.dernier || (prevu && x.bascule)) && ecart < 0) {
+        const suiv = nomDe(x.suivant), dS = de(suiv), manque = k.a < 0, mt = manque ? -k.a : -ecart;
+        out.push(section('Report'), liste([interrupteur({ ic: 'calendrier', ton: 'var(--blue)', titre: 'Reporter sur ' + suiv, on: x.reporte, change: (on) => reporter(cle, on, x.suivant) })]));
+        out.push(note(manque
+          ? (x.reporte ? 'Le manque de ' + eur(mt) + ' est pris sur l’épargne ' + dS + '.' : 'Le manque de ' + eur(mt) + ' est pris sur ce que tu peux dépenser en ' + suiv + ' : son épargne ne bouge pas.')
+          : (x.reporte ? 'Les ' + eur(mt) + ' virés en plus comptent pour ' + suiv + ' : son objectif baisse d’autant.' : 'Les ' + eur(mt) + ' virés en plus restent en plus sur ton épargne : ' + suiv + ' garde son objectif.')));
+      } else if (!prevu && k.a < 0) out.push(note(x.reporte ? 'Ce manque a été reporté sur le mois suivant.' : 'Ce manque n’a pas été reporté : il a été pris sur les dépenses du mois suivant.'));
+      else if (!prevu && k.trop) out.push(note(eur(k.trop) + ' virés en plus' + (x.reporte ? ' : ils ont réduit l’objectif du mois suivant.' : ', non reportés : ils restent en plus sur ton épargne.')));
+      // « Je ne le vire pas » : un reste à virer redevient dépensable
+      if (!prevu && (k.reste > 0 || k.nv > 0)) {
+        out.push(liste([interrupteur({ ic: 'pieces', ton: 'var(--gray)', titre: 'Je ne le vire pas', on: k.nv > 0, change: (on) => nePasVirer(cle, on) })]));
+        out.push(note(k.nv > 0 ? 'Les ' + eur(k.nv) + ' ne sont plus à virer : tu peux les dépenser.' : 'Si tu ne vires pas ces ' + eur(k.reste) + ', ils redeviennent dépensables ce mois-ci.'));
+      }
       const ops = (dash.data('operations').data || []).filter((o) => x.virements.includes(o.id)).sort((a, b) => (a.date < b.date ? -1 : 1));
       out.push(section('Virements comptés'));
       if (!ops.length) out.push(note('Aucun pour l’instant. Un virement fait plus tard peut être rattaché à ce mois depuis Opérations.'));
@@ -315,20 +416,20 @@
     const out = [];
     if (choix.type === 'mois') {
       const l = v.postes.find((x) => x.id === choix.id), reste = Number(l.reste);
-      // Le « Oui » n'est donné que si le mois, report et caisse compris, ne finit pas déjà dans le négatif
-      const fa = finAjustee();
-      if (m <= reste && fa >= 0) out.push(verdict('ok', 'var(--green)', 'Oui, c’est dans ton budget', 'Il restera ' + eur(reste - m) + ' en ' + l.poste + ' ce mois-ci.'));
-      else if (m <= reste) out.push(verdict('alerte', 'var(--orange)', 'Dans le budget du poste, mais ton mois est déjà négatif', 'Il restera ' + eur(reste - m) + ' en ' + l.poste + ', mais avec le report et la caisse ton mois finit à ' + signe(fa) + '. Chaque euro dépensé creuse ce trou.'));
+      // Le « Oui » n'est donné que si l'achat tient dans le poste et dans ce que tu peux encore dépenser
+      const pd = peuxDepenser();
+      if (m <= reste && m <= pd) out.push(verdict('ok', 'var(--green)', 'Oui, c’est dans ton budget', 'Il restera ' + eur(reste - m) + ' en ' + l.poste + ' et ' + eur(pd - m) + ' à dépenser en tout.'));
+      else if (m <= reste) out.push(verdict('alerte', 'var(--orange)', 'Dans le poste, mais plus que ce que tu peux dépenser', 'Il ne te reste que ' + eur(Math.max(0, pd)) + ' à dépenser en tout. Le reste serait pris sur ton épargne.'));
       else {
-        const dep = m - Math.max(0, reste), autres = v.postes.filter((x) => x.id !== l.id).reduce((s, x) => s + Math.max(0, Number(x.reste)), 0);
-        out.push(verdict('alerte', 'var(--orange)', 'Ça dépasse de ' + eur(dep), 'Il reste ' + eur(Math.max(0, reste)) + ' en ' + l.poste + '. Compense sur tes autres postes (' + eur(autres) + ' restants), sinon ton mois passe de ' + signe(fa) + ' à ' + signe(fa - dep) + '.'));
-        if (reste > 0 && fa >= 0) out.push(verdict('ok', 'var(--green)', 'Jusqu’à ' + eur(reste) + ', c’est bon', 'Le montant maximum sans toucher à l’épargne ni aux autres postes.'));
+        const dep = m - Math.max(0, reste);
+        out.push(verdict('alerte', 'var(--orange)', 'Ça dépasse le poste de ' + eur(dep), 'Il reste ' + eur(Math.max(0, reste)) + ' en ' + l.poste + '. ' + (m <= pd ? 'Ça tient dans ce que tu peux dépenser (' + eur(pd) + ') : tu le prends sur tes autres postes.' : 'Au-delà de ' + eur(Math.max(0, pd)) + ', c’est pris sur ton épargne.')));
+        if (reste > 0 && pd > 0) out.push(verdict('ok', 'var(--green)', 'Jusqu’à ' + eur(Math.min(reste, pd)) + ', c’est bon', 'Le montant maximum sans toucher à l’épargne ni aux autres postes.'));
       }
     } else {
       const l = v.enveloppes.find((x) => x.id === choix.id), reste = Number(l.reste), k = v.caisse.valeur;
       out.push(m <= reste ? verdict('ok', 'var(--green)', 'Prévu dans l’enveloppe ' + l.poste, 'Il restera ' + eur(reste - m) + ' pour ' + v.mc.slice(0, 4) + '.')
         : verdict('alerte', 'var(--orange)', 'Dépasse l’enveloppe de ' + eur(m - Math.max(0, reste)), 'Il reste ' + eur(Math.max(0, reste)) + ' en ' + l.poste + ' pour ' + v.mc.slice(0, 4) + '.'));
-      out.push(verdict('caisse', k - m < 0 ? 'var(--orange)' : 'var(--teal)', 'Caisse : ' + signe(k) + ' → ' + signe(k - m), k - m < 0 ? 'Le trou serait retiré de l’épargne du mois.' : null));
+      out.push(verdict('caisse', k - m < 0 ? 'var(--orange)' : 'var(--teal)', 'Caisse : ' + signe(k) + ' → ' + signe(k - m), k - m < 0 ? 'Le trou serait pris sur ce que tu peux dépenser ce mois-ci.' : null));
     }
     r.replaceChildren(...out);
   };
@@ -571,14 +672,73 @@
       el('p', 'v-note', 'Les supprimer ne change pas les opérations déjà classées.')];
   };
   const corpsRegles = () => { const l = dash.data('regles').data || []; return l.length ? [liste(l.map((r) => ligne({ titre: r.regle, sous: r.poste + ' · ' + r.bloc })))] : [note('Aucune règle pour l’instant.')]; };
-  const corpsCalcul = () => [liste([
-    'Revenus du mois : salaire versé à la fin du mois précédent, plus la CAF et Action Logement reçues dans le mois.',
-    'Somme à partager : revenus du mois, moins les charges fixes prévues, la part mensuelle des enveloppes et les montants prévus des charges variables.',
-    'Budget loisirs du mois : ' + String(syn('part_loisirs') || (A.calc().datasets.references.find((r) => r.id === 'part_loisirs') || {}).montant).replace('.', ',') + ' % de la somme à partager, réparti entre les loisirs selon leur part. Le reste correspond à l’épargne.',
-    'Enveloppes : ' + eur2(V().normal.env) + ' par mois vont dans la caisse des enveloppes, qui paie leurs dépenses. Les plafonds annuels repartent à zéro en janvier.',
-    'Épargne à virer : revenus, moins les charges fixes passées, les loisirs et charges variables dépensés et la part des enveloppes. Un mois négatif est déduit du suivant. Suivi depuis octobre 2026, début du budget avec le prêt.',
-    'Exclus : mouvements internes, titres-restaurant, revenus exceptionnels et dépenses hors budget. Les montants sont nets des remboursements.'
-  ].map((t) => { const r = el('div', 'v-ligne'); r.append(el('div', 'v-txt', t)); r.querySelector('.v-txt').style.cssText = 'font-size:15px;line-height:1.4;padding:4px 0'; return r; }), true)];
+  const corpsCalcul = () => { const p = V().pct; return [liste([
+    'Revenus du mois : salaire versé à la fin du mois précédent, plus la CAF et Action Logement du mois. Les rentrées exceptionnelles n’en font pas partie.',
+    'Reste du mois : revenus du mois moins les charges fixes prévues. Il se partage en ' + p.variables + ' % de charges variables, ' + p.enveloppes + ' % d’enveloppes, ' + p.loisirs + ' % de loisirs et ' + p.epargne + ' % d’épargne.',
+    'Dans les charges variables et les loisirs, chaque poste reçoit sa part du groupe.',
+    'Enveloppes : leur part va dans la caisse des enveloppes, qui paie leurs dépenses. Si la caisse passe sous zéro, le trou est pris sur le mois. Les plafonds de l’année repartent à zéro en janvier.',
+    'Tu peux dépenser : solde du compte au dernier relevé, plus les revenus encore attendus, moins les prélèvements attendus, l’épargne à virer ou à garder, l’argent des enveloppes et le coussin. Un virement d’épargne fait en avance le baisse : cet argent n’est plus sur le compte.',
+    'Épargne du mois : ce que le mois laisse sur le compte. Ce que tu ne dépenses pas s’y ajoute, rentrées exceptionnelles comprises ; un dépassement s’en retire, et un mois négatif est déduit du suivant. Suivi depuis octobre 2026, début du budget avec le prêt.',
+    'Titres-restaurant : exclus. Les montants sont nets des remboursements.'
+  ].map((t) => { const r = el('div', 'v-ligne'); r.append(el('div', 'v-txt', t)); r.querySelector('.v-txt').style.cssText = 'font-size:15px;line-height:1.4;padding:4px 0'; return r; }), true)]; };
+
+  // ---------- Réglages : la répartition du reste et la part de chaque poste ----------
+  const GRP = { 'Charge variable': ['variables', 'Charges variables', 'panier', 'var(--blue)'], Loisir: ['loisirs', 'Loisirs', 'resto', 'var(--indigo)'], 'Enveloppe annuelle': ['enveloppes', 'Enveloppes', 'cadeau', 'var(--orange)'] };
+  const NOM_PCT = { variables: 'Charges variables', enveloppes: 'Enveloppes', loisirs: 'Loisirs' };
+  const dRegle = A.dialogue('<h2 id="rg-titre"></h2><p id="rg-aide"></p><label for="rg-val" id="rg-lab"></label><input id="rg-val" inputmode="decimal" autocomplete="off">' + A.boutons('Enregistrer'), () => {
+    const b = A.bundle(), t = nombre($('rg-val').value), r = enReglage;
+    if (!r) return;
+    if (r.type === 'coussin') {
+      if (!(t >= 0)) return 'Tape un montant positif, ou 0.';
+      A.maj(Object.assign({}, b, { coussin: Math.round(t * 100) / 100 }), 'Coussin : ' + eur(t) + ' gardés sur le compte.'); return;
+    }
+    if (!(t >= 0 && t <= 100)) return 'Tape un pourcentage entre 0 et 100.';
+    if (r.type === 'pct') {
+      const rep = Object.assign({}, M.REPARTITION_DEFAUT, b.repartition || {}, { [r.cle]: t }), tot = rep.variables + rep.enveloppes + rep.loisirs;
+      if (tot > 100) return 'Les trois parts feraient ' + dec1(tot) + ' % : il ne resterait rien pour l’épargne. Baisse une autre part d’abord.';
+      A.maj(Object.assign({}, b, { repartition: rep }), NOM_PCT[r.cle] + ' : ' + dec1(t) + ' % du reste. Épargne : ' + dec1(100 - tot) + ' %.'); return;
+    }
+    // Part d'un poste dans son groupe : les autres postes se partagent le reste en gardant leurs proportions.
+    // Les montants enregistrés deviennent ceux d'un mois normal.
+    const grp = b.references.filter((x) => x.type === r.ref.type), autres = grp.filter((x) => x.id !== r.ref.id);
+    if (!autres.length) return 'Ce poste est seul dans son groupe : il en a toute la part.';
+    const T = r.total, totA = autres.reduce((s, x) => s + Math.max(0, Number(x.montant) || 0), 0), resteA = T * (1 - t / 100);
+    const refs = b.references.map((x) => {
+      if (x.id === r.ref.id) return Object.assign({}, x, { montant: Math.round(T * t) / 100 });
+      if (!autres.includes(x)) return x;
+      const w = totA > 0 ? Math.max(0, Number(x.montant) || 0) / totA : 1 / autres.length;
+      return Object.assign({}, x, { montant: Math.round(resteA * w * 100) / 100 });
+    });
+    A.maj(Object.assign({}, b, { references: refs }), r.ref.poste + ' : ' + dec1(t) + ' % des ' + GRP[r.ref.type][1].toLowerCase() + '.');
+  });
+  let enReglage = null;
+  const regler = (type, o) => {
+    const v = V(); enReglage = Object.assign({ type }, o || {});
+    const T = type === 'coussin' ? ['Coussin à garder', 'Somme que tu gardes toujours sur le compte. Elle n’est ni à dépenser, ni à épargner.', 'Montant (€)', v.dispo ? v.dispo.coussin : (A.bundle().coussin || 0)]
+      : type === 'pct' ? ['Part du reste', NOM_PCT[o.cle] + ' : part du reste du mois (revenus moins charges fixes). L’épargne prend ce qui reste.', 'Pourcentage (%)', v.pct[o.cle]]
+        : ['Part du groupe', o.ref.poste + ' : sa part dans le groupe. Les autres postes se partagent le reste.', 'Pourcentage (%)', o.part];
+    $('rg-titre').textContent = T[0]; $('rg-aide').textContent = T[1]; $('rg-lab').textContent = T[2]; $('rg-val').value = String(Math.round(Number(T[3]) * 10) / 10).replace('.', ',');
+    A.ouvrir(dRegle);
+  };
+  // Page d'un groupe dans Réglages : sa part du reste, puis ses postes
+  const pageGroupeReg = (type) => {
+    const [cle, titre, ic, tonG] = GRP[type];
+    pousser({ retour: 'Réglages', titre: () => titre, sous: () => V().pct[cle] + ' % du reste · ' + eur(V().normal[cle === 'enveloppes' ? 'env' : cle]) + ' un mois normal',
+      corps: () => {
+        const v = V(), refs = A.bundle().references.filter((r) => r.type === type), out = [];
+        out.push(liste([ligne({ ic, ton: tonG, titre: 'Part du reste', val: v.pct[cle] + ' %', clic: () => regler('pct', { cle }), chev: true })]));
+        if (type === 'Enveloppe annuelle') {
+          out.push(liste(refs.map((r) => ligne({ ic: icone(r.poste), ton: tonG, titre: r.poste, sous: r.note || null, val: eur2(Number(r.montant)) + ' / an', data: { ref: r.id }, clic: () => {}, chev: true }))));
+          out.push(note('Chaque mois, ' + v.pct.enveloppes + ' % du reste partent dans la caisse des enveloppes. Ces plafonds pour l’année servent de repère. Touche un montant pour le modifier.'));
+          return out;
+        }
+        const tot = refs.reduce((s, r) => s + Math.max(0, Number(r.montant) || 0), 0), T = v.normal[cle];
+        const parts = refs.map((r) => (tot > 0 ? Math.max(0, Number(r.montant) || 0) / tot : 1 / refs.length)), mts = M.entiers(parts.map((p) => p * T));
+        out.push(liste(refs.map((r, i) => ligne({ ic: icone(r.poste), ton: tonG, titre: r.poste, sous: dec1(parts[i] * 100) + ' % du groupe', val: eur(mts[i]), clic: refs.length > 1 ? () => regler('part', { ref: r, part: parts[i] * 100, total: T }) : null, chev: refs.length > 1 }))));
+        out.push(note('Montants pour un mois normal. Chaque mois, la part du groupe suit ton reste du mois et se partage entre ces postes. Touche un poste pour changer sa part.'));
+        return out;
+      } });
+  };
 
   // Une ligne = un titre et une valeur ; le détail et l'explication sont dans la page qui s'ouvre
   const serre = (rows) => { const l = liste(rows); l.classList.add('serre'); return l; };
@@ -589,15 +749,16 @@
     return { txt: 'le ' + new Date(sav).toLocaleDateString('fr-FR').slice(0, 5), due: false };
   };
   dash.draw('v_reglages', (c) => {
-    const n = V().normal, b = A.bundle(), out = [], sv = etatSauvegarde();
+    const v = V(), n = v.normal, p = v.pct, b = A.bundle(), out = [], sv = etatSauvegarde();
     const [iR, iF, iV, iE, iL] = M.entiers([n.revenus, -n.fixes, -n.variables, -n.env, -n.loisirs]);
     out.push(section('Mon budget d’un mois normal'), serre([
-      ligne({ ic: 'billet', ton: 'var(--green)', titre: 'Revenus', val: eur(iR), clic: () => pageRefs('Revenu', 'Revenus', 'Moyennes d’un mois normal. Le budget du mois suit les revenus vraiment reçus.'), chev: true }),
+      ligne({ ic: 'billet', ton: 'var(--green)', titre: 'Revenus', val: eur(iR), clic: () => pageRefs('Revenu', 'Revenus', 'Moyennes d’un mois normal. Chaque mois, le budget suit les revenus vraiment reçus.'), chev: true }),
       ligne({ ic: 'maison', ton: 'var(--gray)', titre: 'Charges fixes', val: moins(-iF), clic: () => pageRefs('Charge fixe', 'Charges fixes', 'Montants prélevés chaque mois. Touche un montant pour le modifier.'), chev: true }),
-      ligne({ ic: 'panier', ton: 'var(--blue)', titre: 'Charges variables', val: moins(-iV), clic: () => pageRefs('Charge variable', 'Charges variables', 'Plafonds mensuels fixes.'), chev: true }),
-      ligne({ ic: 'cadeau', ton: 'var(--orange)', titre: 'Enveloppes', val: moins(-iE), clic: () => pageRefs('Enveloppe annuelle', 'Enveloppes', 'Montants pour l’année. Un douzième part chaque mois dans la caisse des enveloppes.'), chev: true }),
-      ligne({ ic: 'resto', ton: 'var(--indigo)', titre: 'Loisirs', val: moins(-iL), clic: () => pageRefs('Loisir', 'Loisirs', 'Montants d’un mois normal. Chaque mois, le budget loisirs suit les revenus reçus.'), chev: true }),
-      ligne({ ic: 'pieces', ton: 'var(--green)', titre: 'Épargne prévue', val: eur(iR + iF + iV + iE + iL), total: true })]), serre([ligne({ ic: 'cible', ton: 'var(--blue)', titre: 'Ma répartition 50 / 30 / 20', clic: () => pageRepere(), chev: true })]));
+      ligne({ ic: 'calcul', ton: 'var(--gray)', titre: 'Reste à partager', val: eur(iR + iF) }),
+      ligne({ ic: 'panier', ton: 'var(--blue)', titre: 'Charges variables', sous: p.variables + ' % du reste', val: moins(-iV), clic: () => pageGroupeReg('Charge variable'), chev: true }),
+      ligne({ ic: 'cadeau', ton: 'var(--orange)', titre: 'Enveloppes', sous: p.enveloppes + ' % du reste', val: moins(-iE), clic: () => pageGroupeReg('Enveloppe annuelle'), chev: true }),
+      ligne({ ic: 'resto', ton: 'var(--indigo)', titre: 'Loisirs', sous: p.loisirs + ' % du reste', val: moins(-iL), clic: () => pageGroupeReg('Loisir'), chev: true }),
+      ligne({ ic: 'pieces', ton: 'var(--green)', titre: 'Épargne prévue', sous: p.epargne + ' % du reste', val: eur(iR + iF + iV + iE + iL), total: true })]), serre([ligne({ ic: 'cible', ton: 'var(--blue)', titre: 'Ma répartition 50 / 30 / 20', clic: () => pageRepere(), chev: true })]));
     out.push(section('Mes données'), serre([
       ligne({ ic: 'import', ton: 'var(--blue)', titre: 'Importer un relevé', clic: () => $('app-file').click(), chev: true }),
       ligne({ ic: 'disque', ton: 'var(--blue)', titre: 'Sauvegarder', val: sv.txt, valCls: sv.due ? 'orange' : 'v-gris', clic: () => A.sauvegarder(), chev: true })]));

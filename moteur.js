@@ -262,6 +262,15 @@
   }
 
   // ---------- Calculs ----------
+  // Répartition du reste du mois (revenus du mois moins charges fixes), en pourcentages. L'épargne prend ce qui reste.
+  const REPARTITION_DEFAUT = { variables: 30, enveloppes: 25, loisirs: 35 };
+  function partsDuReste(bundle) {
+    const r = Object.assign({}, REPARTITION_DEFAUT, (bundle && bundle.repartition) || {});
+    const p = (k) => Math.max(0, Math.min(100, Number(r[k]) || 0));
+    const v = p('variables'), e = p('enveloppes'), l = p('loisirs');
+    return { variables: v, enveloppes: e, loisirs: l, epargne: Math.max(0, r2(100 - v - e - l)) };
+  }
+
   function calculer(bundle) {
     const refs = bundle.references, ops = bundle.operations;
     const ref = (id) => { const r = refs.find((x) => x.id === id); return r ? Number(r.montant) : 0; };
@@ -274,13 +283,14 @@
     const recu = (mois, poste) => r2(somme(opsDe(mois, poste).map((o) => Number(o.montant))));
 
     const fixes = r2(somme(parType('Charge fixe').map((r) => Number(r.montant))));
-    const variables = r2(somme(parType('Charge variable').map((r) => Number(r.montant))));
-    const envMois = somme(parType('Enveloppe annuelle').map((r) => Number(r.montant))) / 12;
-    const loisirsNormal = somme(parType('Loisir').map((r) => Number(r.montant)));
-    const partagerNormal = ref('rev_sal') + ref('rev_caf') + ref('rev_al') - fixes - envMois - variables;
-    // Part des loisirs arrondie au centième de pourcent (75,66 %), comme dans le classeur
-    const part = partagerNormal > 0 ? Math.round(loisirsNormal / partagerNormal * 10000) / 10000 : 0;
-    const budgetLoisirs = (rev) => Math.max(0, (rev - fixes - envMois - variables) * part);
+    const pct = partsDuReste(bundle);
+    // Le reste du mois (revenus moins charges fixes prévues) se partage en pourcentages
+    const partsDe = (rev) => { const R = Math.max(0, rev - fixes); return { reste: R, variables: R * pct.variables / 100, enveloppes: R * pct.enveloppes / 100, loisirs: R * pct.loisirs / 100, epargne: R * pct.epargne / 100 }; };
+    // Dans un groupe, chaque poste reçoit sa part selon son montant de référence (à parts égales s'ils sont tous à zéro)
+    const poids = (liste) => { const t = somme(liste.map((r) => Math.max(0, Number(r.montant) || 0))); return (r) => (t > 0 ? Math.max(0, Number(r.montant) || 0) / t : 1 / liste.length); };
+    const refsVar = parType('Charge variable'), refsLois = parType('Loisir'), pVar = poids(refsVar), pLois = poids(refsLois);
+    const revNormal = r2(ref('rev_sal') + ref('rev_caf') + ref('rev_al'));
+    const normalP = partsDe(revNormal);
 
     // Montant habituel d'un versement : le plus fréquent dans l'historique (Action Logement : 100 €)
     const habituel = (poste) => { const n = {}; ops.forEach((o) => { if (o.poste === poste && o.montant > 0) n[o.montant] = (n[o.montant] || 0) + 1; }); const e = Object.entries(n).sort((a, b) => b[1] - a[1] || b[0] - a[0])[0]; return e ? Number(e[0]) : 0; };
@@ -296,10 +306,11 @@
       const reste = r2(seuil - depense);
       return Object.assign({ id: r.id, bloc, poste: r.poste, seuil: r2(seuil), depense: r2(depense), reste, pct_reste: seuil ? Math.round(reste / seuil * 100) : 0 }, extra || {});
     };
+    // Plafonds du mois : la part du groupe, répartie entre ses postes
     const budget = (mois, rev, extra) => {
-      const bl = budgetLoisirs(rev.total);
-      return parType('Loisir').map((r) => ligne(r, 'Loisirs', bl * Number(r.montant) / loisirsNormal, net(mois, r.poste), extra))
-        .concat(parType('Charge variable').map((r) => ligne(r, 'Charges variables', Number(r.montant), net(mois, r.poste), extra)));
+      const p = partsDe(rev.total);
+      return refsLois.map((r) => ligne(r, 'Loisirs', p.loisirs * pLois(r), net(mois, r.poste), extra))
+        .concat(refsVar.map((r) => ligne(r, 'Charges variables', p.variables * pVar(r), net(mois, r.poste), extra)));
     };
 
     // Mois terminé
@@ -330,69 +341,213 @@
     });
     const moisCourant = lignesMt.concat(env, [global], fixesL);
 
-    // Virement d'épargne de fin de mois : revenus - charges fixes passées - loisirs et charges variables dépensés
-    // - part des enveloppes - dépassement de la caisse des enveloppes. Un mois négatif est reporté sur le suivant.
+    // ---------- Épargne du mois ----------
+    // Ce que le mois laisse à épargner : revenus - charges fixes passées - loisirs et charges variables dépensés - part des enveloppes
+    // - trou de la caisse des enveloppes, plus tout ce qui passe d'autre sur le compte (rentrées exceptionnelles, hors budget,
+    // opérations à classer, mouvements internes, retraits d'épargne). Ainsi la suite des mois tombe juste avec le solde du compte.
+    // Un mois négatif (ou un virement en trop) est reporté sur le suivant.
     const postesFixes = parType('Charge fixe').map((r) => r.poste);
-    const postesBudget = parType('Loisir').concat(parType('Charge variable')).map((r) => r.poste);
+    const postesBudget = refsLois.concat(refsVar).map((r) => r.poste);
     const postesEnv = parType('Enveloppe annuelle').map((r) => r.poste);
     // Le budget actuel (avec le prêt) ne vaut qu'à partir de `suivi_depuis` : le report et la caisse partent de ce mois
     const premierOps = ops.length ? moisDecale(ops.reduce((m, o) => (o.mois < m ? o.mois : m), '9999-99'), 1) : mt;
     const suivi = bundle.suivi_depuis || SUIVI_DEFAUT;
     const premierMois = suivi > premierOps ? suivi : premierOps;
-    const laisses = bundle.deficits_laisses || {};
-    // Caisse des enveloppes : reçoit la part mensuelle, paie les enveloppes. Si elle passe sous zéro,
+    const partEnv = (m) => (m < premierMois ? 0 : partsDe(revenusDe(m, m === mc).total).enveloppes);
+    // Caisse des enveloppes : reçoit la part du mois, paie les enveloppes. Si elle passe sous zéro,
     // le trou est retiré de l'épargne du mois et la caisse repart de zéro.
     const envDep = (mois) => r2(-somme(ops.filter((o) => o.mois === mois && postesEnv.includes(o.poste)).map((o) => Number(o.montant))));
     const trouEnv = {};
     let caisseFin = 0;
     for (let m = premierMois; m <= mt; m = moisDecale(m, 1)) {
-      const c = r2(caisseFin + envMois - envDep(m));
+      const c = r2(caisseFin + partEnv(m) - envDep(m));
       trouEnv[m] = c < 0 ? -c : 0; caisseFin = Math.max(0, c);
     }
+    // Caisse du mois en cours : fin du mois terminé, plus la part de ce mois (comptée dès le 1er), moins les enveloppes déjà payées ce mois-ci
+    let verse = 0; for (let m = premierMois; m <= mc; m = moisDecale(m, 1)) verse += partEnv(m);
+    const partMc = partEnv(mc);
+    const envDepuis = r2(-somme(ops.filter((o) => o.mois >= premierMois && postesEnv.includes(o.poste)).map((o) => Number(o.montant))));
+    const caisse = { depuis: moisLabel(premierMois), verse: r2(verse), depense: envDepuis, valeur: r2(caisseFin + partMc - envDep(mc)), mois_suivant: moisLabel(mc) };
+    trouEnv[mc] = caisse.valeur < 0 ? -caisse.valeur : 0;
+
+    const REV = ['Salaire', 'CAF', 'Action Logement'];
+    const comptes = new Set(postesFixes.concat(postesBudget, postesEnv));
+    // Le reste de ce qui passe sur le compte. Un envoi vers l'épargne n'y est pas : il compte dans « déjà viré ».
+    // Le salaire reçu dans le mois n'y est pas non plus : il sert au mois suivant.
+    const autresDe = (mois) => {
+      const x = { exc: 0, hors: 0, interne: 0 };
+      ops.forEach((o) => {
+        if (o.mois !== mois || comptes.has(o.poste) || (o.bloc === 'Revenus' && REV.includes(o.poste))) return;
+        const m = Number(o.montant);
+        if (o.poste === EPARGNE && m < 0) return;
+        if (o.bloc === 'Exceptionnel') x.exc += m; else if (o.bloc === 'Interne') x.interne += m; else x.hors += m;
+      });
+      return { exc: r2(x.exc), hors: r2(x.hors), interne: r2(x.interne) };
+    };
     const brutVirement = (mois) => {
-      const rv = revenusDe(mois, false).total;
+      const rv = revenusDe(mois, mois === mc).total;
       const fx = r2(somme(postesFixes.map((p) => net(mois, p))));
       const dp = r2(somme(postesBudget.map((p) => net(mois, p))));
-      const te = trouEnv[mois] || 0;
-      return { rv, fx, dp, te, v: r2(rv - fx - dp - envMois - te) };
+      const pe = r2(partEnv(mois)), te = trouEnv[mois] || 0, a = autresDe(mois);
+      return { rv, fx, dp, pe, te, exc: a.exc, hors: a.hors, interne: a.interne, v: r2(rv - fx - dp - pe - te + a.exc + a.hors + a.interne) };
     };
     // Mois civil : un envoi vers l'épargne compte pour le mois de sa date, ou pour le mois auquel il est rattaché (mois_epargne).
-    // « Déjà viré » ne compte que les envois : un retrait ne crée pas de reste à virer (il reste montré à part).
+    // « Déjà viré » ne compte que les envois. Un retrait d'épargne est une entrée d'argent sur le compte (montrée à part).
     const moisEpargne = (o) => o.mois_epargne || o.mois;
     const mvtEpargne = (mois) => {
       const envois = r2(-somme(ops.filter((o) => o.poste === EPARGNE && Number(o.montant) < 0 && moisEpargne(o) === mois).map((o) => Number(o.montant))));
       const retraits = r2(somme(ops.filter((o) => o.poste === EPARGNE && Number(o.montant) > 0 && o.mois === mois).map((o) => Number(o.montant))));
       return { envois, retraits, net: envois };
     };
-    // Report : ce qui manque à la fin d'un mois (virement dû moins virements) passe au mois suivant,
-    // sauf si tu as choisi de le laisser filer (pris sur le compte courant). Un virement en trop réduit le mois suivant.
-    const reportVers = {};
-    let report = 0;
+
+    // Solde du compte en fin de journée : la valeur lue dans un relevé, sinon le dernier solde connu, corrigé des opérations
+    const soldes = bundle.soldes || {}, joursSolde = Object.keys(soldes).sort(), dernierJour = joursSolde[joursSolde.length - 1];
+    const soldeLe = (d) => {
+      if (!dernierJour) return null;
+      const k = joursSolde.filter((x) => x <= d).pop();
+      if (k && !ops.some((o) => o.date > k && o.date <= d)) return soldes[k];
+      if (d >= dernierJour) return r2(soldes[dernierJour] + somme(ops.filter((o) => o.date > dernierJour && o.date <= d).map((o) => Number(o.montant))));
+      return r2(soldes[dernierJour] - somme(ops.filter((o) => o.date > d && o.date <= dernierJour).map((o) => Number(o.montant))));
+    };
+    // Coussin : somme que tu gardes toujours sur le compte. Elle n'est ni à dépenser, ni à épargner.
+    const coussinGarde = Math.max(0, Number(bundle.coussin) || 0);
+    // Départ du suivi : l'argent déjà sur le compte la veille du premier mois (sans le salaire, qui sert à ce mois), moins le coussin.
+    // Il entre dans l'épargne du premier mois, comme un report.
+    const avant = moisDecale(premierMois, -1), soldeAvant = soldeLe(avant + '-31');
+    const depart = soldeAvant === null ? 0 : r2(soldeAvant - recu(avant, 'Salaire') - coussinGarde);
+    // Chaîne des mois, en argent réel : un mois fini dans le rouge, ou des virements en trop, passent au mois suivant ;
+    // un reste à virer reste sur son mois, sauf s'il n'est pas viré (« Je ne le vire pas », non_vires : { mois: mois où il
+    // redevient dépensable }). Le choix « Reporter sur le mois suivant » (reporter, par défaut oui, sauf le premier mois suivi)
+    // ne change que l'objectif d'épargne du mois en cours, jamais ce calcul en argent réel.
+    const choixReport = bundle.reporter || {}, nonVires = bundle.non_vires || {};
+    const reporte = (m) => (Object.prototype.hasOwnProperty.call(choixReport, m) ? !!choixReport[m] : m !== premierMois);
+    const reportVers = {}, libVers = {}, libere = {};
+    let report = depart;
     for (let m = premierMois; m <= mt; m = moisDecale(m, 1)) {
-      reportVers[m] = report;
-      const ecart = r2(brutVirement(m).v + report - mvtEpargne(m).net);
-      report = laisses[m] ? 0 : Math.min(0, ecart);
+      libVers[m] = r2(libere[m] || 0);
+      reportVers[m] = r2(report + libVers[m]);
+      const ecart = r2(brutVirement(m).v + reportVers[m] - mvtEpargne(m).envois);
+      if (ecart > 0 && nonVires[m]) { const t = typeof nonVires[m] === 'string' && nonVires[m] > m ? nonVires[m] : moisDecale(m, 1); libere[t] = r2((libere[t] || 0) + ecart); }
+      report = Math.min(0, ecart);
     }
-    reportVers[mc] = report;
+    libVers[mc] = r2(libere[mc] || 0);
+    reportVers[mc] = mc >= premierMois ? r2(report + libVers[mc]) : 0;
+    // Report appliqué à l'objectif du mois en cours : l'argent d'avant le budget s'il est le premier mois, sinon l'écart
+    // négatif du mois terminé, s'il est reporté
+    const negMc = mc > premierMois ? report : 0;
+    const reportObjMc = mc === premierMois ? reportVers[mc] : (reporte(mt) ? negMc : 0);
     report = reportVers[mt] || 0;
     const vir = brutVirement(mt), virTotal = r2(vir.v + report);
-    const mvt = mvtEpargne(mt), deja = mvt.net;
+    const mvt = mvtEpargne(mt), deja = mvt.envois;
+    const calculDe = (b, m) => ({ revenus: b.rv, fixes: b.fx, depenses: b.dp, enveloppes: b.pe, trou: b.te, exc: b.exc, hors: b.hors, interne: b.interne,
+      report: r2((reportVers[m] || 0) - (libVers[m] || 0)), libere: libVers[m] || 0, reporte: m === premierMois || reporte(moisDecale(m, -1)), depart: m === premierMois });
     // Épargne par mois : les 3 derniers mois terminés (pas avant le début du suivi)
     const epargneTermine = (m) => {
-      const b = brutVirement(m), a = r2(b.v + (reportVers[m] || 0)), mv = mvtEpargne(m);
-      return { cle: m, libelle: moisLabel(m), etat: 'termine', a_epargner: a, vire: mv.envois, retraits: mv.retraits, reste: r2(Math.max(0, a - mv.envois)),
-        en_trop: r2(Math.max(0, mv.envois - Math.max(0, a))), negatif: a < 0, laisse: !!laisses[m],
-        calcul: { revenus: b.rv, fixes: b.fx, depenses: b.dp, enveloppes: r2(envMois), trou: b.te, report: reportVers[m] || 0 },
+      const b = brutVirement(m), a = r2(b.v + (reportVers[m] || 0)), mv = mvtEpargne(m), nv = !!nonVires[m] && a - mv.envois > 0.005;
+      return { cle: m, libelle: moisLabel(m), etat: 'termine', a_epargner: a, vire: mv.envois, retraits: mv.retraits, reste: nv ? 0 : r2(Math.max(0, a - mv.envois)),
+        non_vire: nv ? r2(a - mv.envois) : 0, ecart: r2(a - mv.envois), reporte: reporte(m), dernier: m === mt, suivant: moisDecale(m, 1),
+        en_trop: r2(Math.max(0, mv.envois - Math.max(0, a))), negatif: a < 0, calcul: calculDe(b, m),
         virements: ops.filter((o) => o.poste === EPARGNE && Number(o.montant) < 0 && moisEpargne(o) === m).map((o) => o.id) };
     };
     const epTermines = [];
     for (let m = mt, n = 0; n < 3 && m >= premierMois; m = moisDecale(m, -1), n++) epTermines.push(epargneTermine(m));
+    const aVirerPasses = r2(somme(epTermines.map((x) => x.reste)));
     const resteVir = r2(virTotal - deja);
     const manque = resteVir < 0 ? -resteVir : 0;
 
-    // Mois en cours
+    // ---------- Mois en cours ----------
     const revMc = revenusDe(mc, true);
+    const pMc = partsDe(revMc.total);
     const moisEnCours = budget(mc, revMc, { mois: mc });
+    const jourOf = (iso) => Number(iso.slice(8, 10));
+    const nbJoursDe = (m) => new Date(Date.UTC(Number(m.slice(0, 4)), Number(m.slice(5, 7)), 0)).getUTCDate();
+    const nbJours = nbJoursDe(mc);
+    const auj = exp.slice(0, 7) === mc ? jourOf(exp) : nbJours;
+    // Jour habituel d'une opération : celui du dernier passage (charges fixes, salaire)
+    const jourHabituel = (poste) => { const l = ops.filter((o) => o.poste === poste && o.mois < mc).sort((a, b) => (a.date < b.date ? 1 : -1))[0]; return l ? Math.min(jourOf(l.date), nbJours) : null; };
+    const blocsBudget = { Loisirs: 0, 'Charges variables': 0 };
+    moisEnCours.forEach((l) => { blocsBudget[l.bloc] += l.depense; });
+    const envMc = parType('Enveloppe annuelle').map((r) => {
+      const dep = r2(-somme(ops.filter((o) => o.poste === r.poste && o.mois >= mc.slice(0, 4) + '-01' && o.mois <= mc).map((o) => Number(o.montant))));
+      return ligne(r, 'Enveloppes', Number(r.montant), dep, { depense_mois: net(mc, r.poste) });
+    });
+    const envDepMc = r2(somme(envMc.map((l) => l.depense_mois)));
+
+    // Charges fixes encore attendues ce mois-ci. « Pas ce mois-ci » (fixes_sautes) : la charge n'est pas attendue ce mois-là.
+    const sautes = bundle.fixes_sautes || {};
+    const saute = (mois, r) => (sautes[mois] || []).includes(r.id);
+    const attenduDe = (r, mois) => (r.id === 'prime' ? (mois.slice(5) === '02' ? r2(Number(r.montant) * 12) : 0) : r2(Number(r.montant)));
+    const fixesMc = parType('Charge fixe').map((r) => {
+      const passe = net(mc, r.poste), att = attenduDe(r, mc), s = saute(mc, r);
+      return { id: r.id, mois: mc, poste: r.poste, passe, attendu: att, jour: jourHabituel(r.poste), saute: s, reste: passe > 0.01 || s || att <= 0 ? 0 : att };
+    });
+    const fixesVenirMc = r2(somme(fixesMc.map((f) => f.reste)));
+    // Rentrées exceptionnelles du mois : chacune peut être ajoutée à l'épargne du mois (vers_epargne)
+    const excMc = ops.filter((o) => o.mois === mc && o.bloc === 'Exceptionnel' && Number(o.montant) > 0)
+      .map((o) => ({ id: o.id, date: o.date, libelle: o.libelle, poste: o.poste, montant: Number(o.montant), vers_epargne: !!o.vers_epargne }));
+    const ajouteMc = r2(somme(excMc.filter((x) => x.vers_epargne).map((x) => x.montant)));
+    const mvMc = mvtEpargne(mc);
+    // Épargne du mois en cours : la part épargne du reste, plus le report du mois terminé, plus les rentrées ajoutées
+    const objMc = r2(pMc.epargne + reportObjMc + ajouteMc);
+    const revAttMc = r2((revMc.cafEtat === 'attendue' ? revMc.caf : 0) + (revMc.alEtat === 'attendue' ? revMc.al : 0));
+    // Sans solde connu : le reste des loisirs et des charges variables, moins le trou éventuel de la caisse
+    const resteBudget = r2(somme(moisEnCours.map((l) => l.reste)) + Math.min(0, caisse.valeur));
+
+    // ---------- Ce que tu peux dépenser : à partir du solde du compte ----------
+    // Solde + revenus encore attendus - charges fixes encore attendues - épargne à virer des mois terminés - épargne du mois à garder
+    // - argent de la caisse des enveloppes - coussin. Dès que le salaire du mois suivant est arrivé, le chiffre vaut jusqu'à la fin
+    // de ce mois-là : le mois en cours garde pour l'épargne ce qu'il a laissé, et le mois suivant réserve ses charges fixes, sa part
+    // des enveloppes et sa part épargne.
+    const solde = dernierJour ? soldeLe(exp >= dernierJour ? exp : dernierJour) : null;
+    const salSuivant = recu(mc, 'Salaire');
+    const bascule = salSuivant > 0;
+    const mn = moisDecale(mc, 1);
+    let dispo = null, aMcBascule = null, bMcBascule = null;
+    if (solde !== null) {
+      const L = (id, libelle, montant, sous) => ({ id, libelle, montant: r2(montant), sous: sous || '' });
+      let lignes, fixesListe = fixesMc.filter((f) => f.attendu > 0 && !(f.passe > 0.01));
+      const nomsRev = (c, a) => [c > 0.01 ? 'CAF' : '', a > 0.01 ? 'Action Logement' : ''].filter(Boolean).join(', ');
+      const cafAtt = revMc.cafEtat === 'attendue' ? revMc.caf : 0, alAtt = revMc.alEtat === 'attendue' ? revMc.al : 0;
+      if (!bascule) {
+        lignes = [L('solde', 'Sur ton compte', solde), L('revenus', 'Revenus encore attendus', revAttMc, nomsRev(cafAtt, alAtt)),
+          L('fixes', 'Prélèvements encore attendus', -fixesVenirMc), L('passes', 'Épargne à virer', -aVirerPasses, 'Des mois passés'),
+          L('epargne', 'Épargne ' + (/^[aeiou]/.test(moisNom(mc)) ? 'd’' : 'de ') + moisNom(mc) + ' à garder', -Math.max(0, r2(objMc - mvMc.envois))),
+          L('caisse', 'Argent des enveloppes', -Math.max(0, caisse.valeur)), L('coussin', 'Coussin', -coussinGarde)];
+      } else {
+        const revMn = { sal: salSuivant, caf: ref('rev_caf'), al: habituel('Action Logement') || ref('rev_al') };
+        const pMn = partsDe(revMn.sal + revMn.caf + revMn.al);
+        const fixesMn = parType('Charge fixe').map((r) => ({ id: r.id, mois: mn, poste: r.poste, passe: 0, attendu: attenduDe(r, mn), jour: jourHabituel(r.poste), saute: saute(mn, r) }))
+          .map((f) => Object.assign(f, { reste: f.saute || f.attendu <= 0 ? 0 : f.attendu }));
+        fixesListe = fixesListe.concat(fixesMn.filter((f) => f.attendu > 0));
+        bMcBascule = brutVirement(mc);
+        aMcBascule = r2(bMcBascule.v - fixesVenirMc + (reportVers[mc] || 0));
+        const nomMn = moisNom(mn), d = (/^[aeiou]/.test(nomMn) ? 'd’' : 'de ') + nomMn, dMc = (/^[aeiou]/.test(moisNom(mc)) ? 'd’' : 'de ') + moisNom(mc);
+        const epMc = r2(aMcBascule - mvMc.envois);
+        lignes = [L('solde', 'Sur ton compte', solde), L('revenus', 'Revenus encore attendus', revAttMc + revMn.caf + revMn.al, nomsRev(cafAtt + revMn.caf, alAtt + revMn.al)),
+          L('fixes', 'Prélèvements encore attendus', -r2(fixesVenirMc + somme(fixesMn.map((f) => f.reste)))), L('passes', 'Épargne à virer', -aVirerPasses, 'Des mois passés'),
+          L('epargne', 'Épargne ' + dMc + ' à garder', -Math.max(0, epMc), 'Ce que le mois laisse'),
+          L('epargne_suivant', 'Épargne ' + d + ' à garder', -Math.max(0, r2(pMn.epargne + (reporte(mc) ? Math.min(0, epMc) : 0))), pct.epargne + ' % du reste' + (epMc < 0 && reporte(mc) ? ', −' + Math.round(-epMc).toLocaleString('fr-FR') + ' € de report' : '')),
+          L('caisse', 'Argent des enveloppes', -r2(Math.max(0, caisse.valeur) + pMn.enveloppes), 'Avec la part ' + d), L('coussin', 'Coussin', -coussinGarde)];
+      }
+      const jours = bascule ? nbJours - auj + nbJoursDe(mn) : nbJours - auj;
+      // Une épargne à garder négative (virements en avance, ou manque reporté plus grand que la part épargne) n'est jamais
+      // ajoutée à ce que tu peux dépenser : cet argent n'est plus sur le compte. Ce que tu dépenses en moins la rattrape.
+      const brut = bascule ? null : r2(solde + revAttMc - fixesVenirMc - aVirerPasses - (objMc - mvMc.envois) - Math.max(0, caisse.valeur) - coussinGarde);
+      dispo = { valeur: r2(somme(lignes.map((l) => l.montant))), solde, date: exp >= dernierJour ? exp : dernierJour, bascule, fin: bascule ? mn : mc, fin_jour: nbJoursDe(bascule ? mn : mc), jours, lignes,
+        fixes: fixesListe, exc: excMc, coussin: coussinGarde };
+      dispo.retenu = bascule ? 0 : r2(brut - dispo.valeur);
+    }
+
+    // Épargne prévue du mois en cours (onglet Épargne) : ce qu'il restera si tu dépenses ce que tu peux, ni plus, ni moins.
+    // Un dépassement à ce jour vient en moins. Après l'arrivée du salaire, c'est ce que le mois a laissé.
+    const depasse = Math.min(0, dispo ? dispo.valeur : resteBudget);
+    const retenu = dispo ? dispo.retenu : 0;
+    const aMc = bascule && dispo ? aMcBascule : r2(objMc + retenu + depasse);
+    const calculMc = bascule && dispo
+      ? Object.assign(calculDe(bMcBascule, mc), { fixes_venir: fixesVenirMc })
+      : { part: r2(pMc.epargne), pct: pct.epargne, report: reportObjMc, ajoute: ajouteMc, retenu, depasse, depart: mc === premierMois, non_reporte: r2(negMc - (mc === premierMois ? 0 : reportObjMc)), libere: libVers[mc] || 0 };
+    const prevu = { cle: mc, libelle: moisLabel(mc), etat: 'prevu', a_epargner: aMc, vire: mvMc.envois, retraits: mvMc.retraits, reste: r2(Math.max(0, aMc - mvMc.envois)), en_trop: 0, negatif: aMc < 0,
+      bascule: bascule && !!dispo, calcul: calculMc, reporte: reporte(mc), suivant: moisDecale(mc, 1), ecart: r2(aMc - mvMc.envois), virements: ops.filter((o) => o.poste === EPARGNE && Number(o.montant) < 0 && moisEpargne(o) === mc).map((o) => o.id) };
 
     const nc = ops.filter((o) => o.bloc === 'Non classé').length;
     const S = (id, libelle, valeur, unite) => ({ id, libelle, valeur, unite: unite || '' });
@@ -403,8 +558,9 @@
       S('salaire_mois', 'Mois du salaire', moisNom(moisDecale(mt, -1))),
       S('caf', 'CAF', rev.caf, '€'),
       S('al', 'Action Logement', rev.al, '€'),
-      S('a_partager', 'Somme à partager entre loisirs et épargne', r2(rev.total - fixes - envMois - variables), '€'),
-      S('loisirs_mois', 'Budget loisirs du mois', r2(budgetLoisirs(rev.total)), '€'),
+      S('a_partager', 'Reste à partager (revenus moins charges fixes)', r2(partsDe(rev.total).reste), '€'),
+      S('loisirs_mois', 'Budget loisirs du mois', r2(partsDe(rev.total).loisirs), '€'),
+      S('variables_mois', 'Budget des charges variables du mois', r2(partsDe(rev.total).variables), '€'),
       S('debut_enveloppes', 'Année des enveloppes', 'janvier à décembre ' + an),
       S('maj', 'Export utilisé', frDate(exp)),
       S('mois_cle', 'Clé du mois affiché', mt),
@@ -420,13 +576,16 @@
       S('mc_caf_etat', 'État CAF', revMc.cafEtat),
       S('mc_al', 'Action Logement', revMc.al, '€'),
       S('mc_al_etat', 'État Action Logement', revMc.alEtat),
-      S('mc_loisirs', 'Budget loisirs du mois en cours', r2(budgetLoisirs(revMc.total)), '€'),
+      S('mc_loisirs', 'Budget loisirs du mois en cours', r2(pMc.loisirs), '€'),
       S('tr_mois', 'Mois du virement', moisLabel(mt)),
       S('tr_revenus', 'Revenus du mois', vir.rv, '€'),
       S('tr_fixes', 'Charges fixes passées', vir.fx, '€'),
       S('tr_depenses', 'Loisirs et charges variables dépensés', vir.dp, '€'),
-      S('tr_env', 'Part mensuelle des enveloppes', r2(envMois), '€'),
+      S('tr_env', 'Part des enveloppes du mois', vir.pe, '€'),
       S('tr_trou_env', 'Dépassement de la caisse des enveloppes', vir.te, '€'),
+      S('tr_exc', 'Rentrées exceptionnelles', vir.exc, '€'),
+      S('tr_hors', 'Hors budget et à classer', vir.hors, '€'),
+      S('tr_interne', 'Mouvements internes et retraits d’épargne', vir.interne, '€'),
       S('tr_envois', 'Envoyé vers l’épargne', mvt.envois, '€'),
       S('tr_retraits', 'Retiré de l’épargne', mvt.retraits, '€'),
       S('tr_manque', 'Manque du mois', manque, '€'),
@@ -434,56 +593,10 @@
       S('tr_virement', 'À virer', Math.max(0, virTotal), '€'),
       S('tr_deja', 'Déjà viré (envois vers l’épargne)', deja, '€'),
       S('tr_reste', 'Reste à virer', Math.max(0, resteVir), '€'),
-      S('tr_etat', 'État du virement', manque > 0 ? 'Mois fini à −' + fr2(manque) + ' € : cet argent a été pris sur ton compte courant.' : virTotal <= 0 ? 'Rien à virer ce mois-ci.' : deja <= 0 && mvt.retraits === 0 ? 'Pas encore fait.' : resteVir <= 0 ? 'Fait.' : 'En partie fait.'),
-      S('tr_note', 'Report', manque > 0 ? (laisses[mt] ? 'Tu as choisi de le laisser filer : rien n’est reporté sur le mois prochain.' : fr2(manque) + ' € seront déduits du virement du mois prochain, sauf si tu choisis de les laisser filer.') : 'Montant à virer sur ton compte d’épargne en début de mois.')
+      S('tr_etat', 'État du virement', manque > 0 ? 'Mois fini à −' + fr2(manque) + ' € : ce manque est déduit du mois suivant.' : virTotal <= 0 ? 'Rien à virer ce mois-ci.' : deja <= 0 ? 'Pas encore fait.' : resteVir <= 0 ? 'Fait.' : 'En partie fait.')
     ];
-    // ---------- Vue « Ce mois-ci » ----------
-    const jourOf = (iso) => Number(iso.slice(8, 10));
-    const nbJours = new Date(Date.UTC(Number(mc.slice(0, 4)), Number(mc.slice(5, 7)), 0)).getUTCDate();
-    const auj = exp.slice(0, 7) === mc ? jourOf(exp) : nbJours;
-    // Jour habituel d'une opération : celui du dernier passage (charges fixes, salaire)
-    const jourHabituel = (poste) => { const l = ops.filter((o) => o.poste === poste && o.mois < mc).sort((a, b) => (a.date < b.date ? 1 : -1))[0]; return l ? Math.min(jourOf(l.date), nbJours) : null; };
-    const jSalaire = jourHabituel('Salaire') || 28;
-    const jEnv = Math.min(jSalaire + 1, nbJours);
-    const blocsBudget = { Loisirs: 0, 'Charges variables': 0 };
-    moisEnCours.forEach((l) => { blocsBudget[l.bloc] += l.depense; });
-    const envMc = parType('Enveloppe annuelle').map((r) => {
-      const dep = r2(-somme(ops.filter((o) => o.poste === r.poste && o.mois >= mc.slice(0, 4) + '-01' && o.mois <= mc).map((o) => Number(o.montant))));
-      return ligne(r, 'Enveloppes', Number(r.montant), dep, { depense_mois: net(mc, r.poste) });
-    });
-    const envDepMc = r2(somme(envMc.map((l) => l.depense_mois)));
-    // Courbe : revenus du mois, moins les charges fixes et les dépenses du budget au jour le jour, moins la part des enveloppes le lendemain du salaire
-    const parJour = new Array(nbJours + 1).fill(0);
-    ops.filter((o) => o.mois === mc && (postesFixes.includes(o.poste) || postesBudget.includes(o.poste))).forEach((o) => { parJour[jourOf(o.date)] += Number(o.montant); });
-    const fixesMc = parType('Charge fixe').map((r) => {
-      const passe = net(mc, r.poste), j = jourHabituel(r.poste);
-      let attendu = Number(r.montant);
-      if (r.id === 'prime') attendu = mc.slice(5) === '02' ? r2(attendu * 12) : 0;
-      return { poste: r.poste, passe, attendu: r2(attendu), jour: j || nbJours, reste: passe > 0.01 ? 0 : r2(attendu) };
-    });
-    const courbe = [{ j: 0, v: revMc.total }];
-    let v = revMc.total;
-    for (let j = 1; j <= auj; j++) { v += parJour[j]; if (j === jEnv) v -= envMois; courbe.push({ j, v: r2(v) }); }
-    const resteBudget = somme(moisEnCours.map((l) => Math.max(0, l.reste)));
-    const proj = [{ j: auj, v: r2(v) }];
-    for (let j = auj + 1; j <= nbJours; j++) {
-      v -= resteBudget / (nbJours - auj);
-      fixesMc.forEach((f) => { if (f.reste > 0 && Math.max(f.jour, auj + 1) === j) v -= f.reste; });
-      if (j === jEnv) v -= envMois;
-      proj.push({ j, v: r2(v) });
-    }
-    const aVenir = fixesMc.filter((f) => f.reste > 0).map((f) => ({ jour: f.jour, libelle: f.poste, detail: f.jour < auj ? 'charge fixe, pas encore vue' : 'charge fixe', montant: -f.reste }))
-      .concat(jEnv > auj ? [{ jour: jEnv, libelle: 'Part des enveloppes', detail: 'vers la caisse des enveloppes', montant: -r2(envMois) }] : [])
-      .concat(jSalaire >= auj && recu(mc, 'Salaire') === 0 ? [{ jour: jSalaire, libelle: 'Salaire', detail: 'attendu, compte pour ' + moisNom(moisDecale(mc, 1)), montant: ref('rev_sal') }] : [])
-      .sort((a, b) => a.jour - b.jour);
 
-    // Caisse des enveloppes à aujourd'hui : fin du mois terminé, moins les enveloppes déjà payées ce mois-ci
-    let nbVerse = 0; for (let m = premierMois; m <= mt; m = moisDecale(m, 1)) nbVerse++;
-    const envDepuis = r2(-somme(ops.filter((o) => o.mois >= premierMois && postesEnv.includes(o.poste)).map((o) => Number(o.montant))));
-    const caisse = { depuis: moisLabel(premierMois), verse: r2(nbVerse * envMois), depense: envDepuis, valeur: r2(caisseFin - envDep(mc)), mois_suivant: moisLabel(mc) };
-
-    // Coussin : solde du compte courant la veille de chaque salaire (fin du mois budgétaire)
-    const soldes = bundle.soldes || {}, joursSolde = Object.keys(soldes).sort();
+    // Coussin historique : solde du compte courant la veille de chaque salaire (fin du mois budgétaire)
     const seuilCoussin = Number(bundle.coussin_min) || 150;
     const coussinL = [];
     if (joursSolde.length) {
@@ -507,7 +620,7 @@
       : o.bloc === 'Enveloppes' ? (/sant|entretien/i.test(o.poste) ? 'obligations' : 'plaisir') : null);
     const depGroupe = {};
     ops.forEach((o) => { const g = groupeDe(o); if (g) { const k = o.mois + '|' + g; depGroupe[k] = (depGroupe[k] || 0) - Number(o.montant); } });
-    const repartition = (liste) => {
+    const repartitionReelle = (liste) => {
       const moy = (f) => (liste.length ? r2(somme(liste.map(f)) / liste.length) : 0);
       const x = { mois: liste, revenus: moy((m) => revenusDe(m, false).total), salaire: moy((m) => revenusDe(m, false).sal),
         obligations: moy((m) => depGroupe[m + '|obligations'] || 0), plaisir: moy((m) => depGroupe[m + '|plaisir'] || 0) };
@@ -518,39 +631,34 @@
     };
     const moisReels = [];
     if (ops.length) for (let m = mt; m >= premierOps && moisReels.length < 12; m = moisDecale(m, -1)) moisReels.unshift(m);
-    const reel = repartition(moisReels);
-    const dernierReel = moisReels.length ? repartition([mt]) : null;
+    const reel = repartitionReelle(moisReels);
+    const dernierReel = moisReels.length ? repartitionReelle([mt]) : null;
+    // Budget d'un mois normal : revenus de référence, charges fixes, puis le reste partagé en pourcentages
+    const normal = { revenus: revNormal, fixes, reste: r2(normalP.reste), variables: r2(normalP.variables), env: r2(normalP.enveloppes), loisirs: r2(normalP.loisirs), epargne: r2(normalP.epargne) };
+    const depNormal = r2(fixes + normalP.variables + normalP.enveloppes + normalP.loisirs);
     // Base des projections : la moyenne réelle, ou le budget de référence tant qu'aucun mois n'est terminé
     const base = reel.mois.length
       ? { revenus: reel.revenus, depenses: reel.depenses, epargne: reel.epargne, plaisir: reel.plaisir, salaire: reel.salaire > 0 ? reel.salaire : ref('rev_sal'), reel: true }
-      : { revenus: r2(ref('rev_sal') + ref('rev_caf') + ref('rev_al')), depenses: r2(fixes + variables + envMois + loisirsNormal), epargne: r2(partagerNormal - loisirsNormal), plaisir: r2(loisirsNormal), salaire: ref('rev_sal'), reel: false };
+      : { revenus: revNormal, depenses: depNormal, epargne: normal.epargne, plaisir: normal.loisirs, salaire: ref('rev_sal'), reel: false };
     base.pct_epargne = base.revenus > 0 ? base.epargne / base.revenus : 0;
 
     const vue = {
-      mc, mois_mc: moisLabel(mc), auj, nbJours, revenus: revMc.total,
-      prevu: { loisirs: r2(budgetLoisirs(revMc.total)), variables, env: r2(envMois), fixes },
+      mc, mois_mc: moisLabel(mc), auj, nbJours, revenus: revMc.total, pct,
+      prevu: { loisirs: r2(pMc.loisirs), variables: r2(pMc.variables), env: r2(partMc), fixes, reste: r2(pMc.reste), epargne: r2(pMc.epargne) },
       depense: { loisirs: r2(blocsBudget.Loisirs), variables: r2(blocsBudget['Charges variables']), env: envDepMc },
-      postes: moisEnCours, enveloppes: envMc, courbe, projection: proj, fin: r2(v), jEnv, aVenir,
-      epargne: { mois: moisLabel(mt), cle: mt, a_virer: Math.max(0, virTotal), deja, reste: Math.max(0, resteVir), manque, laisse: !!laisses[mt], retraits: mvt.retraits, trou_env: vir.te },
+      postes: moisEnCours, enveloppes: envMc, fixes_mc: fixesMc, reste_budget: resteBudget, dispo,
+      epargne: { mois: moisLabel(mt), cle: mt, a_virer: Math.max(0, virTotal), deja, reste: Math.max(0, resteVir), manque, retraits: mvt.retraits, trou_env: vir.te },
       coussin,
       caisse, nc, fixKo: fixesL.filter((l) => !l.ok).map((l) => l.poste),
-      normal: { revenus: r2(ref('rev_sal') + ref('rev_caf') + ref('rev_al')), fixes, variables, env: r2(envMois), loisirs: r2(loisirsNormal), epargne: r2(partagerNormal - loisirsNormal) },
-      patrimoine: patrimoine(bundle, mc, fixes + variables + envMois + loisirsNormal),
+      normal,
+      patrimoine: patrimoine(bundle, mc, depNormal),
       reel, dernier: dernierReel, base
     };
-    // Mois en cours : la fin de mois prévue, plus le report du mois terminé et le trou éventuel de la caisse
-    const trouMc = caisse.valeur < 0 ? -caisse.valeur : 0, mvMc = mvtEpargne(mc), aujMc = courbe[courbe.length - 1].v;
-    const aMc = r2(vue.fin + (reportVers[mc] || 0) - trouMc);
-    const fxVenir = r2(-somme(aVenir.filter((a) => /^charge fixe/.test(a.detail || '')).map((a) => a.montant)));
-    const envVenir = r2(-somme(aVenir.filter((a) => a.libelle === 'Part des enveloppes').map((a) => a.montant)));
-    const prevu = { cle: mc, libelle: moisLabel(mc), etat: 'prevu', a_epargner: aMc, vire: mvMc.envois, retraits: mvMc.retraits, reste: r2(Math.max(0, aMc - mvMc.envois)), en_trop: 0, negatif: aMc < 0,
-      calcul: { aujourdhui: aujMc, reste_budget: r2(aujMc - fxVenir - envVenir - vue.fin), fixes_venir: fxVenir, env_venir: envVenir, report: reportVers[mc] || 0, trou: trouMc },
-      virements: ops.filter((o) => o.poste === EPARGNE && Number(o.montant) < 0 && moisEpargne(o) === mc).map((o) => o.id) };
     vue.epargne_mois = [prevu].concat(epTermines);
-    vue.a_virer = r2(somme(epTermines.map((x) => x.reste)));
+    vue.a_virer = aVirerPasses;
 
-    // Les montants calculés de la page Règles suivent les montants de référence
-    const refsAff = refs.map((r) => (r.id === 'part_loisirs' ? Object.assign({}, r, { montant: r2(part * 100) }) : r.id === 'env_mois' ? Object.assign({}, r, { montant: r2(envMois) }) : r));
+    // Les montants calculés de la page Règles suivent la répartition
+    const refsAff = refs.map((r) => (r.id === 'part_loisirs' ? Object.assign({}, r, { montant: pct.loisirs }) : r.id === 'env_mois' ? Object.assign({}, r, { montant: r2(normalP.enveloppes) }) : r));
     return {
       datasets: { mois_courant: moisCourant, mois_en_cours: moisEnCours, operations: ops, references: refsAff, regles: bundle.regles || [], synthese },
       textes: { mois: moisNom(mt), mois_lib: moisLabel(mt), mois_mc: moisLabel(mc), annee: an, annee_suiv: String(Number(an) + 1) },
@@ -763,6 +871,6 @@
     return Object.assign({}, bundle, { references: refs, ajustements: [...faits, ...aFaire.map((a) => a.cle)] });
   }
 
-  const api = { renommerPostes, ajusterReferences, lireExport, importer, reclasser, calculer, projeter, moisLabel, proposer, lireZip, postes, marchand, nomLisible, nomCourt, entiers, migrerEpargneCalendaire, EPARGNE, lireTR, estTR };
+  const api = { partsDuReste, REPARTITION_DEFAUT, renommerPostes, ajusterReferences, lireExport, importer, reclasser, calculer, projeter, moisLabel, proposer, lireZip, postes, marchand, nomLisible, nomCourt, entiers, migrerEpargneCalendaire, EPARGNE, lireTR, estTR };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.Moteur = api;
 })(typeof window !== 'undefined' ? window : globalThis);

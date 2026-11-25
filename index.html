@@ -111,6 +111,20 @@ details[open] > summary .v-chev { transform: rotate(90deg); }
 /* ---------- Ce mois-ci ---------- */
 .v-heros .lab { color: var(--fg2); font-size: 15px; }
 .v-heros .montant { font: 700 52px/1.05 var(--sfr); letter-spacing: -.035em; margin: 2px 0; }
+.v-compte { display: flex; justify-content: space-between; align-items: center; gap: 8px; width: 100%; min-height: 44px; margin-top: 12px; padding: 10px 0 0;
+  font: inherit; font-size: 15px; color: var(--fg); background: none; border: 0; border-top: .5px solid var(--sep); text-align: left; cursor: pointer; }
+.v-compte > span:first-child { color: var(--fg2); }
+.v-compte > span:last-child { display: inline-flex; align-items: center; gap: 4px; font-variant-numeric: tabular-nums; }
+.v-compte svg { color: var(--fg3); }
+.v-compte:active { opacity: .6; }
+.v-ligne.action .v-txt > b { color: var(--blue); }
+label.v-ligne { cursor: pointer; }
+.v-switch { -webkit-appearance: none; appearance: none; flex: none; width: 51px; height: 31px; margin: 0; border-radius: 999px; background: rgba(120,120,128,.2); position: relative; cursor: pointer; transition: background-color 200ms ease; }
+.v-switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 27px; height: 27px; border-radius: 50%; background: #fff; box-shadow: 0 2px 6px rgba(0,0,0,.2); transition: transform 200ms var(--ease-out); }
+.v-switch:checked { background: var(--green); }
+.v-switch:checked::after { transform: translateX(20px); }
+.v-switch:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .v-switch, .v-switch::after { transition: none; } }
 .v-courbe svg { display: block; width: 100%; height: auto; margin-top: 8px; }
 .v-courbe text { font: 12px var(--sf); fill: var(--fg2); }
 
