@@ -96,6 +96,13 @@
     if (o.chev) r.append(chev());
     return r;
   };
+  // Interrupteur iOS : toute la ligne est touchable
+  const interrupteur = (o) => {
+    const r = el('label', 'v-ligne'); if (o.ic) r.append(carre(o.ic, o.ton));
+    const t = el('div', 'v-txt'); t.append(el('b', '', o.titre)); if (o.sous) t.append(el('small', '', o.sous));
+    const c = document.createElement('input'); c.type = 'checkbox'; c.className = 'v-switch'; c.setAttribute('role', 'switch'); c.checked = !!o.on; c.onchange = () => o.change(c.checked);
+    r.append(t, c); return r;
+  };
   const liste = (rows, nu) => { const l = el('div', 'v-liste' + (nu ? ' nu' : '')); l.append(...rows); return l; };
   const section = (titre, bouton, go) => { const h = el('h2', 'v-section', titre); if (bouton) { const b = el('button', '', bouton); b.type = 'button'; b.onclick = go; h.append(b); } return h; };
   const barre = (pct, couleur, repere) => { const b = el('div', 'v-barre'), i = el('i'); i.style.width = Math.max(0, Math.min(100, pct * 100)) + '%'; i.style.background = couleur; b.append(i); if (repere !== undefined && repere !== null) { const m = el('b'); m.style.left = Math.min(99, repere * 100) + '%'; b.append(m); } return b; };
@@ -231,6 +238,17 @@
       return out;
     }
   });
+  // Reporter ou non l'écart d'un mois sur le suivant (annulable depuis le message)
+  const reporter = (cle, on, suivant) => {
+    const b = A.bundle(), r = Object.assign({}, b.reporter || {}, { [cle]: on });
+    A.maj(Object.assign({}, b, { reporter: r }), cap(nomDe(cle)) + (on ? ' : reporté sur ' : ' : non reporté sur ') + nomDe(suivant) + '.');
+  };
+  // « Je ne le vire pas » : le reste à virer d'un mois redevient dépensable à partir du mois en cours
+  const nePasVirer = (cle, on) => {
+    const b = A.bundle(), n = Object.assign({}, b.non_vires || {});
+    if (on) n[cle] = V().mc; else delete n[cle];
+    A.maj(Object.assign({}, b, { non_vires: n }), on ? cap(nomDe(cle)) + ' : gardé, plus à virer.' : cap(nomDe(cle)) + ' : de nouveau à virer.');
+  };
   // « Pas ce mois-ci » : la charge fixe n'est plus attendue ce mois-là (annulable depuis le message)
   const sauter = (f) => {
     const b = A.bundle(), s = Object.assign({}, b.fixes_sautes || {}), l = (s[f.mois] || []).filter((id) => id !== f.id);
@@ -247,14 +265,17 @@
   const nomDe = (k) => MOIS_L[Number(k.slice(5, 7)) - 1];
   // Euros entiers d'un mois : chaque ligne du calcul arrondie seule, le total calculé à partir des lignes affichées
   const chiffresMois = (x) => {
-    const k = x.calcul, rep = [k.depart ? 'Argent d’avant le budget' : 'Report du mois d’avant', k.report, k.depart ? 'Sur le compte au départ du suivi' : ''];
-    const l = x.etat === 'prevu' && !x.bascule
+    const k = x.calcul, ec = x.etat === 'prevu' && !x.bascule;
+    const rep = [k.depart ? 'Argent d’avant le budget' : ec || k.reporte !== false ? 'Report du mois d’avant' : 'Écart du mois d’avant', k.report, k.depart ? 'Sur le compte au départ du suivi' : ec || k.reporte !== false ? '' : 'Non reporté : pris sur les dépenses'];
+    const lib = ['Gardé pour dépenser', k.libere || 0, 'Non viré le mois d’avant'];
+    const l = ec
       ? [[k.pct + ' % du reste du mois', k.part, 'Ta part épargne'], rep, ['Rentrées ajoutées', k.ajoute], ['Rattrapé sur tes dépenses', k.retenu || 0], ['Dépassement à ce jour', k.depasse]]
       : [['Revenus ' + de(nomDe(x.cle)), k.revenus], ['Charges fixes', -k.fixes - (k.fixes_venir || 0), k.fixes_venir ? 'Dont ' + eur(k.fixes_venir) + ' encore attendus' : ''], ['Loisirs et variables', -k.depenses], ['Part des enveloppes', -k.enveloppes],
-        ['Trou de la caisse', -k.trou], ['Rentrées exceptionnelles', k.exc], ['Hors budget et à classer', k.hors], ['Mouvements internes', k.interne, x.retraits ? 'Retraits d’épargne compris' : ''], rep];
+        ['Trou de la caisse', -k.trou], ['Rentrées exceptionnelles', k.exc], ['Hors budget et à classer', k.hors], ['Mouvements internes', k.interne, x.retraits ? 'Retraits d’épargne compris' : ''], rep, lib];
     const lignes = l.map(([t, n, s]) => ({ t, n: Math.round(n), s })).filter((y, i) => i === 0 || y.n !== 0);
     const a = som(lignes.map((y) => y.n)), v = Math.round(x.vire);
-    return { lignes, a, v, reste: Math.max(0, a - v), trop: Math.max(0, v - Math.max(0, a)), retraits: Math.round(x.retraits) };
+    const nv = x.non_vire > 0 ? Math.max(0, a - v) : 0;
+    return { lignes, a, v, nv, reste: nv ? 0 : Math.max(0, a - v), trop: Math.max(0, v - Math.max(0, a)), retraits: Math.round(x.retraits) };
   };
   const vires = (v) => eur(v) + (v > 1 ? ' virés' : ' viré');
   const termines = () => (V().epargne_mois || []).filter((x) => x.etat === 'termine');
@@ -305,7 +326,8 @@
       const r = ligne({ haut: true, ic: 'calendrier', ton: 'var(--gray)', titre: nom, apres: barre(k.a > 0 ? k.v / k.a : 0, 'var(--gray)'), sous: vires(k.v) + ' sur ' + eur(Math.max(0, k.a)) + ' prévus', val: eur(k.reste), valSous: 'prévu', valCls: 'v-gris', chev: true, clic: ouvrir });
       r.classList.add('prevu'); return r;
     }
-    if (k.a < 0) return ligne({ haut: true, ic: 'baisse', ton: 'var(--orange)', titre: nom, sous: 'Fini à ' + eur(k.a), val: '0 €', valSous: 'reporté', chev: true, clic: ouvrir });
+    if (k.a < 0) return ligne({ haut: true, ic: 'baisse', ton: 'var(--orange)', titre: nom, sous: 'Fini à ' + eur(k.a), val: '0 €', valSous: x.reporte ? 'reporté' : 'non reporté', chev: true, clic: ouvrir });
+    if (k.nv > 0) return ligne({ haut: true, ic: 'calendrier', ton: 'var(--gray)', titre: nom, apres: barre(k.a > 0 ? k.v / k.a : 0, 'var(--gray)'), sous: vires(k.v) + ' sur ' + eur(k.a), val: eur(k.nv), valSous: 'gardé', valCls: 'v-gris', chev: true, clic: ouvrir });
     if (k.reste > 0) return ligne({ haut: true, ic: 'calendrier', ton: 'var(--red)', titre: nom, apres: barre(k.a > 0 ? k.v / k.a : 0, 'var(--green)'), sous: vires(k.v) + ' sur ' + eur(k.a), val: eur(k.reste), valSous: 'à virer', valCls: 'neg', chev: true, clic: ouvrir });
     const r = ligne({ haut: true, ic: 'ok', ton: 'var(--green)', titre: nom, apres: barre(1, 'var(--green)'), sous: vires(k.v) + ' sur ' + eur(k.a), val: '', valSous: k.trop ? '+' + eur(k.trop) : 'soldé', chev: true, clic: ouvrir });
     const vv = r.querySelector('.v-val'); vv.classList.add('pos'); vv.prepend(dessin('ok', 20));
@@ -336,10 +358,27 @@
       const k = chiffresMois(x), prevu = x.etat === 'prevu', out = [];
       out.push(calcul(k.lignes.map((y, i) => ligne({ titre: y.t, sous: y.s, val: i === 0 ? (prevu ? signe(y.n) : eur(y.n)) : (y.n < 0 ? '−' + eur(-y.n) : '+' + eur(y.n)) }))
         .concat([ligne({ titre: prevu ? 'Prévu à épargner' : 'À épargner', val: eur(k.a), valCls: k.a < 0 ? 'neg' : '', total: true })])));
-      out.push(calcul([ligne({ titre: 'Déjà viré', val: moins(k.v) }), ligne({ titre: 'Reste à virer', val: eur(k.reste), total: true })]));
-      if (prevu) out.push(note(x.bascule ? 'Ton salaire est arrivé : ce montant est ce que le mois laisse à ce jour.' : 'C’est une prévision : elle suppose que tu dépenses ce que tu peux encore dépenser, ni plus, ni moins. Ce que tu ne dépenses pas s’y ajoutera à la fin du mois.'));
-      else if (k.a < 0) out.push(note('Ce manque est déduit du mois suivant.'));
-      else if (k.trop) out.push(note(eur(k.trop) + ' virés en plus : ils réduisent ce qu’il faudra virer le mois suivant.'));
+      out.push(calcul([ligne({ titre: 'Déjà viré', val: moins(k.v) })].concat(k.nv ? [ligne({ titre: 'Gardé, non viré', val: moins(k.nv) })] : [], [ligne({ titre: 'Reste à virer', val: eur(k.reste), total: true })])));
+      if (prevu) {
+        out.push(note(x.bascule ? 'Ton salaire est arrivé : ce montant est ce que le mois laisse à ce jour.' : 'C’est une prévision : elle suppose que tu dépenses ce que tu peux encore dépenser, ni plus, ni moins. Ce que tu ne dépenses pas s’y ajoutera à la fin du mois.'));
+        const nr = Math.round(-(x.calcul.non_reporte || 0));
+        if (!x.bascule && nr > 0) out.push(note('L’écart ' + de(nomDe(v.epargne.cle)) + ' (' + eur(nr) + ') n’est pas reporté : ' + nomDe(cle) + ' garde son objectif. Ça se change dans ' + nomDe(v.epargne.cle) + '.'));
+      }
+      // Le choix du report : sur le dernier mois terminé, ou sur le mois en cours une fois le salaire arrivé
+      const ecart = Math.round(x.ecart || 0);
+      if ((x.dernier || (prevu && x.bascule)) && ecart < 0) {
+        const suiv = nomDe(x.suivant), dS = de(suiv), manque = k.a < 0, mt = manque ? -k.a : -ecart;
+        out.push(section('Report'), liste([interrupteur({ ic: 'calendrier', ton: 'var(--blue)', titre: 'Reporter sur ' + suiv, on: x.reporte, change: (on) => reporter(cle, on, x.suivant) })]));
+        out.push(note(manque
+          ? (x.reporte ? 'Le manque de ' + eur(mt) + ' est pris sur l’épargne ' + dS + '.' : 'Le manque de ' + eur(mt) + ' est pris sur ce que tu peux dépenser en ' + suiv + ' : son épargne ne bouge pas.')
+          : (x.reporte ? 'Les ' + eur(mt) + ' virés en plus comptent pour ' + suiv + ' : son objectif baisse d’autant.' : 'Les ' + eur(mt) + ' virés en plus restent en plus sur ton épargne : ' + suiv + ' garde son objectif.')));
+      } else if (!prevu && k.a < 0) out.push(note(x.reporte ? 'Ce manque a été reporté sur le mois suivant.' : 'Ce manque n’a pas été reporté : il a été pris sur les dépenses du mois suivant.'));
+      else if (!prevu && k.trop) out.push(note(eur(k.trop) + ' virés en plus' + (x.reporte ? ' : ils ont réduit l’objectif du mois suivant.' : ', non reportés : ils restent en plus sur ton épargne.')));
+      // « Je ne le vire pas » : un reste à virer redevient dépensable
+      if (!prevu && (k.reste > 0 || k.nv > 0)) {
+        out.push(liste([interrupteur({ ic: 'pieces', ton: 'var(--gray)', titre: 'Je ne le vire pas', on: k.nv > 0, change: (on) => nePasVirer(cle, on) })]));
+        out.push(note(k.nv > 0 ? 'Les ' + eur(k.nv) + ' ne sont plus à virer : tu peux les dépenser.' : 'Si tu ne vires pas ces ' + eur(k.reste) + ', ils redeviennent dépensables ce mois-ci.'));
+      }
       const ops = (dash.data('operations').data || []).filter((o) => x.virements.includes(o.id)).sort((a, b) => (a.date < b.date ? -1 : 1));
       out.push(section('Virements comptés'));
       if (!ops.length) out.push(note('Aucun pour l’instant. Un virement fait plus tard peut être rattaché à ce mois depuis Opérations.'));

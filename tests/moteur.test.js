@@ -194,6 +194,31 @@
   proche('virement en avance : ce que tu dépenses en moins rattrape l’épargne', em(avance, '2026-06').calcul.retenu, 160);
   proche('virement en avance : juin prévoit d’épargner ce qui est viré', em(avance, '2026-06').a_epargner, 300);
   proche('virement en avance : plus rien à virer pour juin', em(avance, '2026-06').reste, 0);
+  // Report au choix : mai fini avec 90 € virés en trop (600 € virés pour 510 €)
+  const trop = [epargne('2026-05-25', 200)];
+  const rep1 = plusJuin(trop), rep0 = plusJuin(trop, { reporter: { '2026-05': false } });
+  egal('report : activé par défaut', em(rep1, '2026-05').reporte, true);
+  proche('report : les 90 € en trop baissent l’objectif de juin', em(rep1, '2026-06').a_epargner, 50);
+  proche('report : le chiffre ne bouge pas', rep1.dispo.valeur, 720);
+  egal('sans report : mai le dit', em(rep0, '2026-05').reporte, false);
+  proche('sans report : juin garde son objectif', em(rep0, '2026-06').a_epargner, 140);
+  proche('sans report : les 90 € sont pris sur ce que tu peux dépenser', rep0.dispo.valeur, 630);
+  proche('sans report : les lignes du calcul font le chiffre', rep0.dispo.lignes.reduce((s, l) => s + l.montant, 0), rep0.dispo.valeur);
+  proche('sans report : ce qui n’est pas reporté est noté', em(rep0, '2026-06').calcul.non_reporte, -90);
+  // Premier mois suivi (mai) qui finit dans le rouge : pas reporté, sauf si tu le demandes
+  const prem = (plus) => M.calculer(avecSolde(operations.concat(trop), Object.assign({ suivi_depuis: '2026-05', coussin: 700 }, plus || {}))).vue;
+  noter('premier mois suivi : il finit bien dans le rouge', em(prem(), '2026-05').ecart < 0, 'écart ' + em(prem(), '2026-05').ecart);
+  egal('premier mois suivi : pas reporté par défaut', em(prem(), '2026-05').reporte, false);
+  proche('premier mois suivi : juin garde son objectif', em(prem(), '2026-06').a_epargner, 140);
+  proche('premier mois suivi : reporté si tu le demandes', em(prem({ reporter: { '2026-05': true } }), '2026-06').a_epargner, 140 + em(prem(), '2026-05').ecart);
+  // « Je ne le vire pas » : les 110 € qui restaient à virer pour mai redeviennent dépensables en juin
+  const nv = plusJuin([], { non_vires: { '2026-05': '2026-06' } });
+  proche('je ne le vire pas : mai n’a plus rien à virer', em(nv, '2026-05').reste, 0);
+  proche('je ne le vire pas : le montant est noté', em(nv, '2026-05').non_vire, 110);
+  proche('je ne le vire pas : il ne reste que mars à virer', nv.a_virer, 370);
+  proche('je ne le vire pas : les 110 € redeviennent dépensables', nv.dispo.valeur, 830);
+  proche('je ne le vire pas : l’objectif de juin ne change pas', em(nv, '2026-06').a_epargner, 140);
+  proche('je ne le vire pas : juin les reçoit dans son calcul', em(nv, '2026-06').calcul.libere, 110);
   // Salaire de juillet arrivé le 28 juin : le chiffre vaut jusqu'à fin juillet
   const cB = M.calculer(avecSolde(operations.concat([sal('2026-06-28', 2000)]), { export: '2026-06-29' })).vue;
   egal('salaire arrivé : le chiffre passe au mois suivant', cB.dispo.bascule, true);
