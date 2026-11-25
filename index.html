@@ -111,6 +111,13 @@ details[open] > summary .v-chev { transform: rotate(90deg); }
 /* ---------- Ce mois-ci ---------- */
 .v-heros .lab { color: var(--fg2); font-size: 15px; }
 .v-heros .montant { font: 700 52px/1.05 var(--sfr); letter-spacing: -.035em; margin: 2px 0; }
+.v-compte { display: flex; justify-content: space-between; align-items: center; gap: 8px; width: 100%; min-height: 44px; margin-top: 12px; padding: 10px 0 0;
+  font: inherit; font-size: 15px; color: var(--fg); background: none; border: 0; border-top: .5px solid var(--sep); text-align: left; cursor: pointer; }
+.v-compte > span:first-child { color: var(--fg2); }
+.v-compte > span:last-child { display: inline-flex; align-items: center; gap: 4px; font-variant-numeric: tabular-nums; }
+.v-compte svg { color: var(--fg3); }
+.v-compte:active { opacity: .6; }
+.v-ligne.action .v-txt > b { color: var(--blue); }
 .v-courbe svg { display: block; width: 100%; height: auto; margin-top: 8px; }
 .v-courbe text { font: 12px var(--sf); fill: var(--fg2); }
 
