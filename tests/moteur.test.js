@@ -104,9 +104,15 @@
 
   // ---------- Caisse des enveloppes ----------
   dans('Caisse des enveloppes');
-  proche('versé : 3 mois à 100 €', v.caisse.verse, 300);
+  proche('versé : 4 mois à 100 €, juin compris', v.caisse.verse, 400);
   proche('dépensé depuis le début du suivi', v.caisse.depense, 390);
-  proche('valeur : repart de zéro après le trou d’avril', v.caisse.valeur, 60);
+  proche('valeur : repart de zéro après le trou d’avril, plus la part de juin', v.caisse.valeur, 160);
+  // Avril en cours (relevé du 25) : le gros cadeau dépasse la caisse. La part d'avril compte une seule fois.
+  const cAvrilEnCours = M.calculer(donnees({ export: '2026-04-25', operations: operations.filter((o) => o.date <= '2026-04-25') })).vue;
+  proche('avril en cours : caisse = 100 de mars + 100 d’avril − 350', cAvrilEnCours.caisse.valeur, -150);
+  proche('avril en cours : le trou prévu est celui que le mois terminé retiendra', cAvrilEnCours.epargne_mois[0].calcul.trou, 150);
+  proche('avril en cours : prévu = 2 020 − 620 − 670 − 100 de vêtements − 100 − 150 − 80 de report', cAvrilEnCours.epargne_mois[0].a_epargner, 300);
+  proche('avril en cours : caisse = fin de mars + ligne Enveloppes de Ce mois-ci', cAvrilEnCours.caisse.valeur, 100 + cAvrilEnCours.prevu.env - cAvrilEnCours.depense.env);
 
   // ---------- Mois en cours ----------
   dans('Mois en cours (juin)');

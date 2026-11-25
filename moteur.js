@@ -477,10 +477,13 @@
       .concat(jSalaire >= auj && recu(mc, 'Salaire') === 0 ? [{ jour: jSalaire, libelle: 'Salaire', detail: 'attendu, compte pour ' + moisNom(moisDecale(mc, 1)), montant: ref('rev_sal') }] : [])
       .sort((a, b) => a.jour - b.jour);
 
-    // Caisse des enveloppes à aujourd'hui : fin du mois terminé, moins les enveloppes déjà payées ce mois-ci
-    let nbVerse = 0; for (let m = premierMois; m <= mt; m = moisDecale(m, 1)) nbVerse++;
+    // Caisse des enveloppes du mois en cours : fin du mois terminé, plus la part de ce mois, moins les enveloppes déjà payées ce mois-ci.
+    // La part du mois compte dès le début du mois, comme pour un mois terminé : sans elle, la prévision du mois
+    // retirerait cette part deux fois (une fois comme part à venir, une fois dans le trou de la caisse).
+    let nbVerse = 0; for (let m = premierMois; m <= mc; m = moisDecale(m, 1)) nbVerse++;
+    const partMc = mc >= premierMois ? envMois : 0;
     const envDepuis = r2(-somme(ops.filter((o) => o.mois >= premierMois && postesEnv.includes(o.poste)).map((o) => Number(o.montant))));
-    const caisse = { depuis: moisLabel(premierMois), verse: r2(nbVerse * envMois), depense: envDepuis, valeur: r2(caisseFin - envDep(mc)), mois_suivant: moisLabel(mc) };
+    const caisse = { depuis: moisLabel(premierMois), verse: r2(nbVerse * envMois), depense: envDepuis, valeur: r2(caisseFin + partMc - envDep(mc)), mois_suivant: moisLabel(mc) };
 
     // Coussin : solde du compte courant la veille de chaque salaire (fin du mois budgétaire)
     const soldes = bundle.soldes || {}, joursSolde = Object.keys(soldes).sort();
