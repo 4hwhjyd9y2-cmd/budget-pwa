@@ -536,6 +536,16 @@
       dispo = { valeur: r2(somme(lignes.map((l) => l.montant))), solde, date: exp >= dernierJour ? exp : dernierJour, bascule, fin: bascule ? mn : mc, fin_jour: nbJoursDe(bascule ? mn : mc), jours, lignes,
         fixes: fixesListe, exc: excMc, coussin: coussinGarde };
       dispo.retenu = bascule ? 0 : r2(brut - dispo.valeur);
+      // Le mois en cours seul : le salaire déjà reçu pour le mois suivant, ses charges et sa part ne comptent pas encore
+      if (bascule) {
+        const nomMc = moisNom(mc), dMois = (/^[aeiou]/.test(nomMc) ? 'd’' : 'de ') + nomMc;
+        const lm = [L('solde', 'Sur ton compte', solde), L('salaire_suivant', 'Salaire déjà reçu', -salSuivant, 'Il compte pour ' + moisNom(mn)),
+          L('revenus', 'Revenus encore attendus', revAttMc, nomsRev(cafAtt, alAtt)), L('fixes', 'Prélèvements encore attendus', -fixesVenirMc),
+          L('passes', 'Épargne à virer', -aVirerPasses, 'Des mois passés'),
+          L('epargne', 'Épargne ' + dMois + ' à garder', -Math.max(0, r2(objMc - mvMc.envois))),
+          L('caisse', 'Argent des enveloppes', -Math.max(0, caisse.valeur)), L('coussin', 'Coussin', -coussinGarde)];
+        dispo.mois = { valeur: r2(somme(lm.map((l) => l.montant))), lignes: lm, jours: nbJours - auj, fin: mc, fin_jour: nbJours };
+      }
     }
 
     // Épargne prévue du mois en cours (onglet Épargne) : ce qu'il restera si tu dépenses ce que tu peux, ni plus, ni moins.
@@ -719,7 +729,9 @@
     for (let m = m0; m <= mc; m = moisDecale(m, 1)) {
       const d = m === mc ? aujourd : finMois(m);
       const b = r2((livretAu(d) || 0) + (peaAu(d) || 0) + (m === mc ? tr || 0 : trAu(m) || 0)), dt = detteAu(m) || 0;
-      courbe.push({ mois: m, brut: b, dette: dt, net: r2(b - dt) });
+      // suivi : le PEA et Trade Republic comptent pour 0 avant leur première valeur saisie, la variation n'a alors pas de sens
+      const suivi = (!P.pea || P.pea.some((x) => x.date <= d)) && (!P.tr || m === mc || Object.keys(P.tr.fins || {}).some((k) => k <= m));
+      courbe.push({ mois: m, brut: b, dette: dt, net: r2(b - dt), suivi });
     }
     const peaDer = (P.pea || []).slice().sort((a, b) => (a.date < b.date ? 1 : -1))[0];
     return {
