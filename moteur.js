@@ -439,7 +439,10 @@
     report = reportVers[mt] || 0;
     const vir = brutVirement(mt), virTotal = r2(vir.v + report);
     const mvt = mvtEpargne(mt), deja = mvt.envois;
+    // objectif (part épargne), plafonds (loisirs et variables), fixes_prevues et sous_fixes (revenus sous les charges fixes prévues)
+    // permettent de lire le même total en partant de l'objectif : objectif + plafonds non dépensés + charges fixes moins chères + …
     const calculDe = (b, m) => ({ revenus: b.rv, fixes: b.fx, depenses: b.dp, enveloppes: b.pe, trou: b.te, exc: b.exc, hors: b.hors, interne: b.interne,
+      objectif: r2(partsDe(b.rv).epargne), plafonds: r2(partsDe(b.rv).loisirs + partsDe(b.rv).variables), fixes_prevues: r2(fixes), sous_fixes: r2(Math.min(0, b.rv - fixes)), pct: pct.epargne,
       report: r2((reportVers[m] || 0) - (libVers[m] || 0)), libere: libVers[m] || 0, reporte: m === premierMois || reporte(moisDecale(m, -1)), depart: m === premierMois });
     // Épargne par mois : les 3 derniers mois terminés (pas avant le début du suivi)
     const epargneTermine = (m) => {
@@ -654,6 +657,7 @@
 
     const vue = {
       mc, mois_mc: moisLabel(mc), auj, nbJours, revenus: revMc.total, pct,
+      revenus_detail: revMc,
       prevu: { loisirs: r2(pMc.loisirs), variables: r2(pMc.variables), env: r2(partMc), fixes, reste: r2(pMc.reste), epargne: r2(pMc.epargne) },
       depense: { loisirs: r2(blocsBudget.Loisirs), variables: r2(blocsBudget['Charges variables']), env: envDepMc },
       postes: moisEnCours, enveloppes: envMc, fixes_mc: fixesMc, reste_budget: resteBudget, dispo,
