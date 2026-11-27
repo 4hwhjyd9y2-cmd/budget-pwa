@@ -227,6 +227,12 @@
   proche('salaire arrivé : il reste les plafonds de juillet (variables et loisirs)', cB.dispo.valeur, 420 + 490);
   proche('salaire arrivé : juin garde pour l’épargne ce qu’il a laissé', em(cB, '2026-06').a_epargner, 2020 - 600 - 20 - 190 - 350);
   proche('salaire arrivé : les lignes du calcul font le chiffre', cB.dispo.lignes.reduce((s, l) => s + l.montant, 0), cB.dispo.valeur);
+  // Le mois en cours seul : sans le salaire de juillet déjà reçu, sans les charges ni la part de juillet
+  egal('salaire arrivé : le chiffre de juin seul existe', !!cB.dispo.mois, true);
+  egal('salaire arrivé : juin seul jusqu’au 30 juin', cB.dispo.mois.fin_jour, 30);
+  proche('salaire arrivé : le salaire reçu est retiré du solde', lig(cB.dispo.mois.lignes, 'salaire_suivant').montant, -2000);
+  proche('salaire arrivé : les lignes de juin seul font son chiffre', cB.dispo.mois.lignes.reduce((s, l) => s + l.montant, 0), cB.dispo.mois.valeur);
+  egal('sans salaire arrivé : pas de chiffre de juin seul', M.calculer(avecSolde(operations, { export: '2026-06-15' })).vue.dispo.mois, undefined);
   // Juin a trop dépensé : son manque est pris sur l'épargne de juillet, et au-delà sur ce que tu peux dépenser
   const basc = (m) => M.calculer(avecSolde(operations.concat([sal('2026-06-28', 2000), op('2026-06-20', 'CARTE HOTEL FICTIF CB*0000', -m, 'Hors budget', 'Voyages')]), { export: '2026-06-29' })).vue;
   proche('salaire arrivé, juin à −40 € : pris sur l’épargne de juillet, le chiffre ne bouge pas', basc(900).dispo.valeur, 910);
@@ -287,6 +293,9 @@
 
   // ---------- Patrimoine ----------
   dans('Patrimoine');
+  const cPeaTard = M.calculer(donnees({ patrimoine: { livret: { valeur: 3000, date: '2026-05-01' }, pea: [{ date: '2026-06-10', valeur: 5000 }] } })).vue.patrimoine.courbe;
+  egal('courbe : avant la première valeur du PEA, le point n’est pas comparable', cPeaTard.filter((q) => q.mois < '2026-06').every((q) => !q.suivi), true);
+  egal('courbe : après sa première valeur, le point est comparable', cPeaTard[cPeaTard.length - 1].suivi, true);
   const cPat = M.calculer(donnees({ patrimoine: { livret: { valeur: 3000, date: '2026-05-01' } } }));
   proche('livret : valeur saisie + virements vus après la date', cPat.vue.patrimoine.livret, 3700);
   proche('matelas en mois de dépenses d’un mois normal', cPat.vue.patrimoine.matelas, 2);

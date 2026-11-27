@@ -180,9 +180,14 @@
 
   // Le grand chiffre : ce que tu peux dépenser, à partir du solde du compte. Ses lignes sont arrondies une à une
   // et le chiffre est leur somme, comme dans la page qui l'explique.
-  const chiffreDispo = () => { const d = V().dispo; if (!d) return null; const n = M.entiers(d.lignes.map((l) => l.montant)); return { d, n, total: som(n) }; };
+  const chiffreDispo = () => {
+    const d = V().dispo; if (!d) return null; const n = M.entiers(d.lignes.map((l) => l.montant));
+    // Salaire du mois suivant déjà arrivé : le grand chiffre reste celui du mois en cours, sans ce salaire
+    let mois = null; if (d.bascule && d.mois) { const nm = M.entiers(d.mois.lignes.map((l) => l.montant)); mois = { n: nm, total: som(nm), d: d.mois }; }
+    return { d, n, total: som(n), mois };
+  };
   // Sans solde dans les relevés : le reste du budget (loisirs et charges variables, moins le trou de la caisse)
-  const peuxDepenser = () => { const x = chiffreDispo(); return x ? x.total : Math.round(V().reste_budget); };
+  const peuxDepenser = () => { const x = chiffreDispo(); return x ? (x.mois ? x.mois.total : x.total) : Math.round(V().reste_budget); };
   dash.draw('v_heros', (c) => {
     const v = V(), x = chiffreDispo();
     document.body.dataset.etat = peuxDepenser() < 0 ? 'trop' : 'ok';
@@ -195,12 +200,13 @@
         el('div', 'lab', !trop && m.jours > 0 ? 'soit ' + eur(m.reste / m.jours) + ' par jour jusqu’au ' + fin : 'Le mois se termine le ' + fin), j, jl, b);
       return;
     }
-    const val = x.total, trop = val < 0, fin = x.d.fin_jour + ' ' + moisCourt(x.d.fin);
-    const compte = el('button', 'v-compte'); compte.type = 'button'; compte.onclick = () => pageDispo();
-    const droite = el('span', '', eur(x.n[0])); droite.append(dessin('chev', 14));
-    compte.append(el('span', '', 'Sur ton compte'), droite);
+    const mm = x.mois, val = mm ? mm.total : x.total, trop = val < 0, jours = mm ? mm.d.jours : x.d.jours;
+    const fin = mm ? mm.d.fin_jour + ' ' + moisCourt(mm.d.fin) : x.d.fin_jour + ' ' + moisCourt(x.d.fin);
+    const ligneCompte = (g, d2) => { const k = el('button', 'v-compte'); k.type = 'button'; k.onclick = () => pageDispo(); const dr = el('span', '', d2); dr.append(dessin('chev', 14)); k.append(el('span', '', g), dr); return k; };
+    const bas = [ligneCompte('Sur ton compte', eur(x.n[0]))];
+    if (mm) bas.push(ligneCompte('Avec le salaire ' + de(MOIS_L[Number(x.d.fin.slice(5, 7)) - 1]), eur(x.total)));
     c.replaceChildren(el('div', 'lab', trop ? 'Tu as dépassé de' : 'Tu peux dépenser'), el('div', 'montant' + (trop ? ' neg' : ''), eur(Math.abs(val))),
-      el('div', 'lab', trop ? 'Ce qui dépasse sera pris sur ton épargne' : x.d.jours > 0 ? 'soit ' + eur(val / x.d.jours) + ' par jour jusqu’au ' + fin : 'Le mois se termine le ' + fin), compte, b);
+      el('div', 'lab', trop ? 'Ce qui dépasse sera pris sur ton épargne' : jours > 0 ? 'soit ' + eur(val / jours) + ' par jour jusqu’au ' + fin : 'Le mois se termine le ' + fin), ...bas, b);
   });
 
   // Ce que tu peux dépenser : le calcul ligne par ligne, les prélèvements attendus (« pas ce mois-ci »),
@@ -215,6 +221,13 @@
       const rows = d.lignes.map((l, i) => ({ l, n: x.n[i] })).filter((y, i) => i === 0 || y.n !== 0)
         .map((y, i) => ligne({ titre: y.l.libelle, sous: sousEp(y.l) || null, val: i === 0 ? eur(y.n) : (y.n < 0 ? '−' : '+') + eur(Math.abs(y.n)) }));
       rows.push(ligne({ titre: x.total < 0 ? 'Dépassé de' : 'Tu peux dépenser', val: eur(Math.abs(x.total)), valCls: x.total < 0 ? 'neg' : '', total: true }));
+      if (x.mois) {
+        const nm = x.mois.n, tm = x.mois.total;
+        const rm = x.mois.d.lignes.map((l, i) => ({ l, n: nm[i] })).filter((y, i) => i === 0 || y.n !== 0)
+          .map((y, i) => ligne({ titre: y.l.libelle, sous: y.l.sous || null, val: i === 0 ? eur(y.n) : (y.n < 0 ? '−' : '+') + eur(Math.abs(y.n)) }));
+        rm.push(ligne({ titre: tm < 0 ? 'Dépassé de' : 'Tu peux dépenser', val: eur(Math.abs(tm)), valCls: tm < 0 ? 'neg' : '', total: true }));
+        out.push(section('Jusqu’au ' + x.mois.d.fin_jour + ' ' + moisCourt(x.mois.d.fin)), calcul(rm), section('Avec le salaire ' + de(nomDe(d.fin))));
+      }
       out.push(calcul(rows));
       if (d.bascule) out.push(note('Ton salaire est arrivé : ce chiffre vaut jusqu’à la fin ' + de(nomDe(d.fin)) + '. Ce que ' + nomDe(v.mc) + ' n’a pas dépensé va à l’épargne.'));
       // Prélèvements attendus : toucher une charge qui ne passera pas ce mois-là
@@ -465,7 +478,9 @@
     out.push(seg);
     const val = serie === 'net' ? p.net : serie === 'brut' ? p.brut : -(p.dette || 0);
     out.push(el('div', 'v-gros' + (val < 0 ? ' neg' : ''), eur(val)));
-    const pts = p.courbe;
+    // Avant la première valeur saisie du PEA et de Trade Republic, la courbe n'est pas comparable : seule la dette l'est
+    const pts = serie === 'dette' ? p.courbe : p.courbe.filter((q) => q.suivi);
+    if (pts.length <= 1 && serie !== 'dette') { const d1 = p.courbe.find((q) => q.suivi); out.push(note('Tes placements sont suivis depuis ' + (d1 ? MOIS_L[Number(d1.mois.slice(5, 7)) - 1] : 'peu de temps') + '. La variation et la courbe apparaîtront avec le mois suivant.')); }
     if (pts.length > 1) {
       const d0 = serie === 'dette' ? -pts[0].dette : pts[0][serie], dv = val - d0, bonne = serie === 'dette' ? dv >= 0 : dv >= 0;
       const pill = el('span', 'v-pastille' + (bonne ? '' : ' r'), (dv >= 0 ? '▲ ' : '▼ ') + eur(Math.abs(dv)) + ' depuis fin ' + moisCourt(pts[0].mois)); pill.style.marginTop = '6px'; out.push(pill);

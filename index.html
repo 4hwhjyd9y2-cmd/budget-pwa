@@ -9,10 +9,9 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="format-detection" content="telephone=no">
 <meta name="apple-mobile-web-app-title" content="Budget">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="color-scheme" content="light dark">
-<meta name="theme-color" content="#F2F2F7" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#06080D">
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <link rel="icon" href="icons/icon-192.png">
@@ -35,9 +34,10 @@
   --sfr: ui-rounded, "SF Pro Rounded", -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", sans-serif;
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1); --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
   --haut: env(safe-area-inset-top, 0px); --bas: env(safe-area-inset-bottom, 0px);
-  color-scheme: light dark;
+  color-scheme: dark;
 }
-@media (prefers-color-scheme: dark) { :root {
+/* Sombre seul, comme l'appli sport : l'appli passe sous l'encoche, dont l'heure est écrite en blanc */
+@media all { :root {
   --bg: #06080D; --card: #1C1D22; --card2: #2C2C2E; --fg: #FFFFFF; --fg2: rgba(235,235,245,.62); --fg3: rgba(235,235,245,.3); --sep: rgba(255,255,255,.10);
   --fill: rgba(120,120,128,.24); --glass: rgba(34,36,44,.62); --glass-edge: rgba(255,255,255,.14);
   --verre: rgba(255,255,255,.065); --verre-bord: inset 0 0 0 .5px rgba(255,255,255,.14), inset 0 1px 0 rgba(255,255,255,.09);
@@ -74,7 +74,7 @@ input, select, textarea { font-size: 16px; }
 .app { max-width: 640px; margin: 0 auto; position: relative; z-index: 1; }
 
 /* ---------- En-tête : date, grand titre à gauche, bouton en verre à droite ---------- */
-.v-entete { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; min-height: 44px; padding: 14px 4px 14px; }
+.v-entete { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; min-height: 44px; padding: 0 4px 12px; }
 .v-entete > div { min-width: 0; }
 .v-entete .v-sous { margin: 0 0 1px; font: 600 15px/1.25 var(--sf); color: var(--fg2); }
 .v-entete .v-titre { margin: 0; }
@@ -151,7 +151,7 @@ details[open] > summary .v-chev { transform: rotate(90deg); }
 /* ---------- Ce mois-ci : carte du mois ---------- */
 .v-heros { position: relative; overflow: hidden; border-radius: 28px; padding: 18px 18px 16px; }
 .v-heros::before { content: ""; position: absolute; inset: 0; background: var(--grad); opacity: .16; pointer-events: none; }
-@media (prefers-color-scheme: dark) { .v-heros::before { opacity: .22; } }
+@media all { .v-heros::before { opacity: .22; } }
 .v-heros > * { position: relative; }
 .v-heros .lab { color: var(--fg2); font-size: 15px; font-weight: 500; }
 .v-heros .montant { width: fit-content; max-width: 100%; font: 800 58px/1.04 var(--sfr); letter-spacing: -.04em; margin: 2px 0 3px; padding-bottom: 2px;
@@ -198,11 +198,11 @@ label.v-ligne { cursor: pointer; }
 /* ---------- Pages poussées (écran suivant), avec leur propre halo ---------- */
 .v-page { position: fixed; top: 0; bottom: 0; left: 0; right: 0; z-index: 40; overflow-y: auto; overscroll-behavior: contain;
   background: radial-gradient(120% 340px at 24% -60px, var(--glow), transparent 72%) no-repeat, radial-gradient(90% 280px at 96% -40px, var(--glow2), transparent 72%) no-repeat, var(--bg);
-  padding: calc(var(--haut) + 6px) max(16px, env(safe-area-inset-right)) calc(40px + var(--bas)) max(16px, env(safe-area-inset-left));
+  padding: var(--haut) max(16px, env(safe-area-inset-right)) calc(40px + var(--bas)) max(16px, env(safe-area-inset-left));
   transform: translateX(100%); transition: transform 380ms var(--ease-drawer), visibility 0s linear 380ms; visibility: hidden; }
 .v-page.on { transform: none; visibility: visible; transition: transform 380ms var(--ease-drawer), visibility 0s; }
 .v-page .app { padding-bottom: 20px; }
-.v-retour { display: inline-flex; align-items: center; gap: 2px; font: 17px var(--sf); color: var(--fg); min-height: 44px; padding: 0 16px 0 10px; margin: 6px 0 8px; border: 0; cursor: pointer;
+.v-retour { display: inline-flex; align-items: center; gap: 2px; font: 17px var(--sf); color: var(--fg); min-height: 44px; padding: 0 16px 0 10px; margin: 0 0 8px; border: 0; cursor: pointer;
   border-radius: 999px; background: var(--glass); box-shadow: inset 0 0 0 .5px var(--glass-edge), 0 2px 10px rgba(0,0,0,.06); -webkit-backdrop-filter: blur(20px) saturate(180%); backdrop-filter: blur(20px) saturate(180%); }
 .v-retour svg { transform: rotate(180deg); color: var(--c1); }
 
