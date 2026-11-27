@@ -303,6 +303,38 @@
   proche('prêt à taux nul : capital restant dû', cPret.vue.patrimoine.dette, 1000);
   egal('prêt à taux nul : fin dans 10 mois', cPret.vue.patrimoine.fin_pret, 'avril 2027');
 
+  dans('État du patrimoine net (PDF Trade Republic)');
+  // PDF inventé, sans compression : police Identity-H (2 octets par code) et table ToUnicode
+  const pdfTest = (lignesPdf) => {
+    const hex = (t) => '<' + Array.from(t).map((c) => c.charCodeAt(0).toString(16).padStart(4, '0')).join('') + '>';
+    const contenu = 'BT /F1 9 Tf ' + lignesPdf.map(([x, y, t]) => '1 0 0 1 ' + x + ' ' + y + ' Tm ' + hex(t) + ' Tj').join(' ') + ' ET';
+    const cm = '/CIDInit /ProcSet findresource begin begincmap 1 beginbfrange <0020><00ff><0020> endbfrange endcmap';
+    const txt = '%PDF-1.4\n1 0 obj <</Type/Page/Resources<</Font<</F1 2 0 R>>>>/Contents 4 0 R>> endobj\n' +
+      '2 0 obj <</Type/Font/Subtype/Type0/Encoding/Identity-H/ToUnicode 3 0 R>> endobj\n' +
+      '3 0 obj <</Length ' + cm.length + '>> stream\n' + cm + '\nendstream endobj\n' +
+      '4 0 obj <</Length ' + contenu.length + '>> stream\n' + contenu + '\nendstream endobj\n%%EOF';
+    const u8 = new Uint8Array(txt.length); for (let i = 0; i < txt.length; i++) u8[i] = txt.charCodeAt(i);
+    return { u8, donnees: { 3: u8.slice(txt.indexOf(cm), txt.indexOf(cm) + cm.length), 4: u8.slice(txt.indexOf(contenu), txt.indexOf(contenu) + contenu.length) } };
+  };
+  const lignesEtat = [[400, 760, 'DATE'], [480, 760, '05.03.2026'], [400, 750, 'COMPTE-TITRES'], [480, 750, '1234567'],
+    [50, 700, 'ÉTAT DU PATRIMOINE NET'], [50, 690, 'au 05.03.2026'],
+    [50, 600, 'Compte-Titres'], [500, 600, '1.234,50'], [50, 590, 'Espèces'], [500, 590, '250,00'], [50, 580, 'Plan d’Épargne en Actions'], [500, 580, '3 000,00'],
+    [50, 570, 'TOTAL'], [500, 570, '4.484,50 EUR'], [50, 400, 'ESPÈCES'], [50, 390, 'Compte courant'], [500, 390, '250,00 EUR']];
+  const pd = pdfTest(lignesEtat), etat = M.etatTR(M.textePDF(pd.u8, pd.donnees));
+  egal('date de l’état', etat.date, '2026-03-05');
+  proche('PEA', etat.pea, 3000);
+  proche('espèces', etat.especes, 250);
+  proche('actions du compte-titres (l’en-tête « COMPTE-TITRES » sans montant est ignoré)', etat.titres, 1234.5);
+  const faux = pdfTest(lignesEtat.map((l) => (l[2] === '4.484,50 EUR' ? [l[0], l[1], '9.999,00 EUR'] : l)));
+  let refus = ''; try { M.etatTR(M.textePDF(faux.u8, faux.donnees)); } catch (e) { refus = e.message; }
+  noter('un total qui ne tombe pas juste est refusé', /ne tombent pas juste/.test(refus), refus);
+  const autre = pdfTest([[50, 700, 'Relevé de compte'], [50, 690, 'Solde 12,00']]);
+  refus = ''; try { M.etatTR(M.textePDF(autre.u8, autre.donnees)); } catch (e) { refus = e.message; }
+  noter('un autre PDF est refusé', /pas un « État du patrimoine net »/.test(refus), refus);
+  const cTit = M.calculer(donnees({ patrimoine: { tr: { date: '2026-06-10', solde: 250, fins: { '2026-06': 250 }, titres: 1234.5 } } })).vue.patrimoine;
+  proche('Trade Republic = espèces + actions', cTit.tr, 1484.5);
+  proche('actions affichées à part', cTit.tr_titres, 1234.5);
+
   // ---------- Lecture du relevé et classement ----------
   dans('Lecture du relevé et classement');
   const csv = [

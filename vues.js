@@ -503,7 +503,7 @@
     c.replaceChildren(section('Comptes'), liste([
       ligne({ ic: 'banque', ton: 'var(--green)', titre: 'Livret A', sous: p.livret === null ? 'À saisir une fois' : dec1(p.matelas) + ' mois de dépenses', val: p.livret === null ? '—' : eur(p.livret), clic: () => placer('livret'), chev: true }),
       ligne({ ic: 'hausse', ton: 'var(--indigo)', titre: 'PEA', sous: p.pea_date ? 'Valeur du ' + p.pea_date.slice(0, 5) : 'À saisir', val: p.pea === null ? '—' : eur(p.pea), clic: () => placer('pea'), chev: true }),
-      ligne({ ic: 'portefeuille', ton: 'var(--blue)', titre: 'Trade Republic', sous: p.tr_date ? 'Solde au ' + p.tr_date.slice(0, 5) : 'Importe son export', val: p.tr === null ? '—' : eur(p.tr), clic: () => placer('tr'), chev: true }),
+      ligne({ ic: 'portefeuille', ton: 'var(--blue)', titre: 'Trade Republic', sous: !p.tr_date ? 'Importe son export' : p.tr_titres ? 'Dont ' + eur(p.tr_titres) + ' d’actions' : 'Solde au ' + p.tr_date.slice(0, 5), val: p.tr === null ? '—' : eur(p.tr), clic: () => placer('tr'), chev: true }),
       ligne({ ic: 'diplome', ton: 'var(--red)', titre: 'Prêt étudiant', sous: p.fin_pret ? 'Fin en ' + p.fin_pret : 'À saisir une fois', val: p.dette === null ? '—' : eur(-p.dette), valCls: 'neg', clic: () => placer('pret'), chev: true })]));
   });
   // Ma répartition : le repère 50 / 30 / 20 sur les mois terminés, en moyenne ou sur le mois dernier
@@ -614,7 +614,7 @@
       P.livret = { valeur: val(0), date: auj(), taux: t };
     }
     else if (enCours === 'pea') { if (!(val(0) >= 0)) return 'Tape un montant positif.'; P.pea = (P.pea || []).filter((x) => x.date !== auj()).concat([{ date: auj(), valeur: val(0) }]); }
-    else if (enCours === 'tr') { if (!isFinite(val(0))) return 'Tape un montant, par exemple 5 478,40.'; const fins = Object.assign({}, P.tr && P.tr.fins); fins[auj().slice(0, 7)] = val(0); P.tr = { date: auj(), solde: val(0), fins }; }
+    else if (enCours === 'tr') { if (!isFinite(val(0))) return 'Tape un montant, par exemple 5 478,40.'; const fins = Object.assign({}, P.tr && P.tr.fins); fins[auj().slice(0, 7)] = val(0); P.tr = Object.assign({}, P.tr, { date: auj(), solde: val(0), fins }); }
     else if (enCours === 'pret') {
       const d = $('pl-3').value.trim();
       if (!(val(0) >= 0)) return 'Capital restant : tape un montant positif.';
@@ -636,8 +636,8 @@
     const P = A.bundle().patrimoine || {}, p = V().patrimoine; enCours = k;
     const T = {
       livret: ['Livret A', 'Valeur aujourd’hui. Ensuite, l’appli suit seule les virements depuis et vers le livret, et ajoute chaque 1er janvier les intérêts estimés avec le taux indiqué.', [...champ(0, 'Valeur (€)', p.livret), ...champ(1, 'Taux annuel (%)', p.livret_taux)]],
-      pea: ['PEA', 'Valeur affichée dans ton appli de bourse aujourd’hui.', champ(0, 'Valeur (€)', p.pea)],
-      tr: ['Trade Republic', 'Le plus simple : importe l’export CSV de Trade Republic (bouton d’import, en haut de Patrimoine). Sinon, tape le solde espèces.', champ(0, 'Solde espèces (€)', p.tr)],
+      pea: ['PEA', 'Le plus simple : importe l’« État du patrimoine net » de Trade Republic (PDF, bouton d’import en haut de Patrimoine). Sinon, tape la valeur affichée aujourd’hui.', champ(0, 'Valeur (€)', p.pea)],
+      tr: ['Trade Republic', 'Le plus simple : importe l’« État du patrimoine net » (PDF) ou l’export CSV de Trade Republic (bouton d’import, en haut de Patrimoine). Sinon, tape le solde espèces.', champ(0, 'Solde espèces (€)', P.tr ? P.tr.solde : null)],
       pret: ['Prêt étudiant', 'Capital restant dû aujourd’hui, d’après ton tableau d’amortissement.', [...champ(0, 'Capital restant (€)', p.dette), ...champ(1, 'Taux annuel (%)', P.pret && P.pret.taux), ...champ(2, 'Mensualité (€)', P.pret && P.pret.mensualite), ...champ(3, 'Mois du déblocage (AAAA-MM, facultatif)', P.pret && P.pret.debut, 'texte')]]
     }[k];
     $('pl-titre').textContent = T[0]; $('pl-aide').textContent = T[1]; $('pl-champs').replaceChildren(...T[2]);

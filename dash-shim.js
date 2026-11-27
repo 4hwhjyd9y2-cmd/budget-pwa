@@ -141,12 +141,24 @@
         confirmerRemplacement(b); return;
       }
       if (!bundle) throw new Error('Importe d’abord budget-donnees.json : il contient tes montants de référence.');
+      // État du patrimoine net Trade Republic (PDF) : PEA, espèces et actions du compte-titres, à sa date
+      if (/\.pdf$/i.test(nom) || f.type === 'application/pdf') {
+        const e = await M.lirePDF(await f.arrayBuffer()), P = Object.assign({}, bundle.patrimoine);
+        P.pea = (P.pea || []).filter((x) => x.date !== e.date).concat([{ date: e.date, valeur: e.pea }]);
+        // Un export CSV plus récent garde son solde espèces ; les actions viennent toujours du PDF
+        if (!P.tr || !P.tr.date || P.tr.date <= e.date) { const fins = Object.assign({}, P.tr && P.tr.fins); fins[e.date.slice(0, 7)] = e.especes; P.tr = Object.assign({}, P.tr, { date: e.date, solde: e.especes, fins }); }
+        P.tr = Object.assign({}, P.tr, { titres: e.titres });
+        sauver(Object.assign({}, bundle, { patrimoine: P }));
+        sessionStorage.setItem('budget-msg', 'Trade Republic au ' + e.date.split('-').reverse().join('/').slice(0, 5) + ' : PEA ' + eur(e.pea) + ', espèces ' + eur(e.especes) + ', actions ' + eur(e.titres) + '.');
+        location.hash = 'duree'; location.reload(); return;
+      }
       let texte, nomCsv = nom;
       if (/\.zip$/i.test(nom) || f.type === 'application/zip') { const z = await M.lireZip(await f.arrayBuffer()); texte = z.texte; nomCsv = z.nom; }
       else texte = await f.text();
       // Export Trade Republic : met à jour le solde espèces dans le patrimoine
       if (M.estTR(texte)) {
-        const tr = M.lireTR(texte);
+        const tr = M.lireTR(texte), ancien = bundle.patrimoine && bundle.patrimoine.tr;
+        if (ancien && ancien.titres) tr.titres = ancien.titres;   // actions du compte-titres : seul le PDF les donne
         sauver(Object.assign({}, bundle, { patrimoine: Object.assign({}, bundle.patrimoine, { tr }) }));
         sessionStorage.setItem('budget-msg', 'Trade Republic : solde espèces de ' + eur(tr.solde) + ' au ' + tr.date.split('-').reverse().join('/') + '.');
         location.hash = 'duree'; location.reload(); return;

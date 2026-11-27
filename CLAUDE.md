@@ -68,7 +68,7 @@ Un point rouge sur l'onglet Épargne signale un virement à faire ; un point ora
   non_vires: { 'AAAA-MM': 'AAAA-MM' },      // « Je ne le vire pas » : le reste à virer du mois redevient dépensable à partir du mois noté
   coussin_min, soldes: { 'AAAA-MM-JJ': solde },   // coussin_min : ancien seuil, ne sert plus qu'aux projections ; deficits_laisses (ancien « laisser filer ») est ignoré
   migrations: ['epargne-calendaire'],              // corrections déjà appliquées une fois
-  patrimoine: { livret: { valeur, date, taux }, pea: [{ date, valeur }], tr: { date, solde, fins }, pret: { capital, date, taux, mensualite, debut } },
+  patrimoine: { livret: { valeur, date, taux }, pea: [{ date, valeur }], tr: { date, solde, fins, titres }, pret: { capital, date, taux, mensualite, debut } },
   renommages: [], ajustements: [], export, maj
 }
 ```
@@ -98,7 +98,7 @@ Un import ne reclasse jamais une opération déjà connue (clé date + libellé 
 - **Épargne par mois** (`vue.epargne_mois`, `vue.a_virer`) : le mois en cours (prévision = part épargne + report + rentrées ajoutées + rattrapé + dépassement à ce jour ; après la bascule, ce que le mois a laissé), puis les 3 derniers mois terminés, pas avant `suivi_depuis`.
 - **Répartition réelle (repère 50 / 30 / 20)** : moyenne des mois terminés (12 au plus) et mois dernier. Obligations = charges fixes, charges variables, enveloppes de santé et d'entretien. Plaisir = loisirs, autres enveloppes, hors budget (voyages). Épargne = revenus − dépenses. Les revenus exceptionnels, les mouvements internes et les opérations non classées ne comptent pas.
 - **Projections** : partent de cette moyenne réelle (revenus, dépenses, épargne, salaire moyen), ou du budget de référence tant qu'aucun mois n'est terminé. La durée couverte se calcule sur le Livret A.
-- **Patrimoine** : Livret A = valeur saisie, virements vus sur le compte courant, intérêts estimés au 1er janvier ; dette du prêt recalculée chaque mois.
+- **Patrimoine** : Livret A = valeur saisie, virements vus sur le compte courant, intérêts estimés au 1er janvier ; Trade Republic = espèces + actions du compte-titres (`tr.titres`, venues du PDF) ; dette du prêt recalculée chaque mois.
 
 Après toute modification de calcul, vérifier la cohérence entre les pages : recalculer à partir des opérations brutes et comparer à ce que chaque écran affiche. Toute nouvelle règle reçoit son test.
 
@@ -109,7 +109,7 @@ Les données existent seulement sur l'appareil. Trois mécanismes, appliqués un
 ## Sauvegarde, import, sécurité
 
 - Sauvegarde : fichier JSON, chiffré si un mot de passe est donné (AES-GCM, clé dérivée par PBKDF2). Toute modification peut être annulée depuis le message qui la confirme.
-- Import : sauvegarde (`.json`), export bancaire (`.zip` ou `.csv`), export Trade Republic (`.csv`).
+- Import : sauvegarde (`.json`), export bancaire (`.zip` ou `.csv`), export Trade Republic (`.csv`, solde espèces et ses fins de mois), « État du patrimoine net » Trade Republic (`.pdf`, lu par `Moteur.lirePDF` sans bibliothèque : valeur du PEA, espèces, actions du compte-titres dans `tr.titres` ; refusé si les montants ne tombent pas juste avec le total ; le PDF n'est pas gardé).
 - Aucun texte importé n'est inséré comme HTML : uniquement `textContent`. CSP stricte (`script-src 'self'`), aucun script ni police hébergés ailleurs.
 
 ## Tester en local

@@ -62,19 +62,19 @@ body[data-tab="reste"][data-etat="trop"] { --c0: light-dark(#C95F00, #FFA23F); -
 [hidden] { display: none !important; }
 html { -webkit-text-size-adjust: 100%; -webkit-tap-highlight-color: transparent; overscroll-behavior-y: none; background: var(--bg); }
 body { margin: 0; background: var(--bg); color: var(--fg); font: 17px/1.3 var(--sf); letter-spacing: -.01em; font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased;
-  padding: var(--haut) max(16px, env(safe-area-inset-right)) calc(120px + var(--bas)) max(16px, env(safe-area-inset-left)); }
+  padding: var(--haut) max(16px, env(safe-area-inset-right)) calc(100px + var(--bas)) max(16px, env(safe-area-inset-left)); }
 /* Halo de couleur, ancré aux 4 bords de l'écran (sur l'écran d'accueil de l'iPhone, une hauteur en vh laisse une bande vide en bas) */
 body::before { content: ""; position: fixed; top: 0; bottom: 0; left: 0; right: 0; z-index: 0; pointer-events: none;
   background: radial-gradient(120% 52% at 24% -6%, var(--glow), transparent 72%), radial-gradient(90% 40% at 96% 4%, var(--glow2), transparent 72%); }
 /* Fondu sous la barre d'onglets : le contenu défile dessous sans la heurter */
-body::after { content: ""; position: fixed; left: 0; right: 0; bottom: 0; height: calc(112px + var(--bas)); z-index: 15; pointer-events: none;
+body::after { content: ""; position: fixed; left: 0; right: 0; bottom: 0; height: calc(96px + var(--bas)); z-index: 15; pointer-events: none;
   background: linear-gradient(to top, var(--bg) 42%, color-mix(in srgb, var(--bg) 0%, transparent)); }
 button, a, [role="button"], summary { touch-action: manipulation; -webkit-user-select: none; user-select: none; }
 input, select, textarea { font-size: 16px; }
 .app { max-width: 640px; margin: 0 auto; position: relative; z-index: 1; }
 
 /* ---------- En-tête : date, grand titre à gauche, bouton en verre à droite ---------- */
-.v-entete { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; min-height: 44px; padding: 0 4px 12px; }
+.v-entete { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; min-height: 44px; padding: 8px 4px 12px; }
 .v-entete > div { min-width: 0; }
 .v-entete .v-sous { margin: 0 0 1px; font: 600 15px/1.25 var(--sf); color: var(--fg2); }
 .v-entete .v-titre { margin: 0; }
@@ -202,12 +202,12 @@ label.v-ligne { cursor: pointer; }
   transform: translateX(100%); transition: transform 380ms var(--ease-drawer), visibility 0s linear 380ms; visibility: hidden; }
 .v-page.on { transform: none; visibility: visible; transition: transform 380ms var(--ease-drawer), visibility 0s; }
 .v-page .app { padding-bottom: 20px; }
-.v-retour { display: inline-flex; align-items: center; gap: 2px; font: 17px var(--sf); color: var(--fg); min-height: 44px; padding: 0 16px 0 10px; margin: 0 0 8px; border: 0; cursor: pointer;
+.v-retour { display: inline-flex; align-items: center; gap: 2px; font: 17px var(--sf); color: var(--fg); min-height: 44px; padding: 0 16px 0 10px; margin: 8px 0 8px; border: 0; cursor: pointer;
   border-radius: 999px; background: var(--glass); box-shadow: inset 0 0 0 .5px var(--glass-edge), 0 2px 10px rgba(0,0,0,.06); -webkit-backdrop-filter: blur(20px) saturate(180%); backdrop-filter: blur(20px) saturate(180%); }
 .v-retour svg { transform: rotate(180deg); color: var(--c1); }
 
-/* ---------- Barre d'onglets flottante en verre ---------- */
-.v-onglets { position: fixed; z-index: 20; left: max(12px, env(safe-area-inset-left)); right: max(12px, env(safe-area-inset-right)); bottom: calc(10px + var(--bas));
+/* ---------- Barre d'onglets flottante en verre, descendue dans la zone de la barre d'accueil comme sur iPhone ---------- */
+.v-onglets { position: fixed; z-index: 20; left: max(12px, env(safe-area-inset-left)); right: max(12px, env(safe-area-inset-right)); bottom: max(10px, calc(var(--bas) - 12px));
   max-width: 560px; margin: 0 auto; height: 64px; border-radius: 32px; display: grid; grid-template-columns: repeat(5, 1fr); padding: 4px;
   background: var(--glass); -webkit-backdrop-filter: blur(28px) saturate(190%); backdrop-filter: blur(28px) saturate(190%); box-shadow: inset 0 0 0 .5px var(--glass-edge), inset 0 1px 0 rgba(255,255,255,.12), 0 10px 32px rgba(0,0,0,.18); }
 .v-onglets button { display: grid; justify-items: center; align-content: center; gap: 2px; font: 600 10px var(--sf); color: var(--fg2); background: none; border: 0; border-radius: 28px; cursor: pointer; padding: 0; position: relative; transition: background-color 200ms ease, color 200ms ease, transform 120ms var(--ease-out); }
@@ -288,7 +288,7 @@ label.v-ligne { cursor: pointer; }
 <!-- Éléments utilisés par le code d'import et de sauvegarde -->
 <div id="app-bar" hidden><span id="app-maj"></span><button type="button" id="app-export">Sauvegarder</button><button type="button" id="app-import">Importer</button></div>
 <div class="app-msg" id="app-msg" role="status" hidden></div>
-<input type="file" id="app-file" accept=".csv,.CSV,.zip,.json,text/csv,application/zip,application/json" hidden>
+<input type="file" id="app-file" accept=".csv,.CSV,.zip,.json,.pdf,text/csv,application/zip,application/json,application/pdf" hidden>
 <div class="app-empty" id="app-empty" hidden>
   <h1>Budget</h1>
   <p>Aucune donnée sur cet appareil. La première fois, importe le fichier <b>budget-donnees.json</b> (montants de référence et historique). Ensuite, importe directement l’export de ta banque (.zip ou .csv). Tout reste sur ce téléphone.</p>
@@ -313,7 +313,7 @@ label.v-ligne { cursor: pointer; }
 
     <section class="bm-page" id="duree" role="tabpanel" aria-labelledby="t-duree" hidden>
       <header class="v-entete"><div><p class="v-sous" data-draw="v_pat_sous"></p><h1 class="v-titre">Patrimoine</h1></div>
-        <button class="v-rond" type="button" data-importer aria-label="Importer l’export Trade Republic"><span data-icone="import"></span></button></header>
+        <button class="v-rond" type="button" data-importer aria-label="Importer un relevé Trade Republic (PDF ou CSV)"><span data-icone="import"></span></button></header>
       <div class="v-carte" data-draw="v_pat"></div>
       <div data-draw="v_comptes"></div>
     </section>
