@@ -105,13 +105,14 @@
   };
   const liste = (rows, nu) => { const l = el('div', 'v-liste' + (nu ? ' nu' : '')); l.append(...rows); return l; };
   const section = (titre, bouton, go) => { const h = el('h2', 'v-section', titre); if (bouton) { const b = el('button', '', bouton); b.type = 'button'; b.onclick = go; h.append(b); } return h; };
-  const barre = (pct, couleur, repere) => { const b = el('div', 'v-barre'), i = el('i'); i.style.width = Math.max(0, Math.min(100, pct * 100)) + '%'; i.style.background = couleur; b.append(i); if (repere !== undefined && repere !== null) { const m = el('b'); m.style.left = Math.min(99, repere * 100) + '%'; b.append(m); } return b; };
+  const barre = (pct, couleur, repere) => { const b = el('div', 'v-barre'), i = el('i'); i.style.width = Math.max(0, Math.min(100, pct * 100)) + '%'; i.style.setProperty('--b', couleur); b.append(i); if (repere !== undefined && repere !== null) { const m = el('b'); m.style.left = Math.min(99, repere * 100) + '%'; b.append(m); } return b; };
 
   // ---------- Navigation : onglets, page poussée, barre compacte ----------
   const montrer = (nom) => {
     const tabs = [...document.querySelectorAll('.bm-tab')];
     if (!tabs.some((t) => t.dataset.tab === nom)) nom = 'reste';
     tabs.forEach((t) => t.setAttribute('aria-selected', String(t.dataset.tab === nom)));
+    document.body.dataset.tab = nom;
     document.querySelectorAll('.bm-page').forEach((p) => { p.hidden = p.id !== nom; });
   };
   const onglet = (n) => { document.querySelector('.bm-tab[data-tab="' + n + '"]').click(); };
@@ -184,6 +185,7 @@
   const peuxDepenser = () => { const x = chiffreDispo(); return x ? x.total : Math.round(V().reste_budget); };
   dash.draw('v_heros', (c) => {
     const v = V(), x = chiffreDispo();
+    document.body.dataset.etat = peuxDepenser() < 0 ? 'trop' : 'ok';
     const b = el('button', 'app-btn primary v-bouton', 'Je veux acheter…'); b.type = 'button'; b.onclick = () => ouvrirAchat();
     if (!x) {
       const m = vueMois(), trop = m.reste < 0, fin = v.nbJours + ' ' + moisCourt(v.mc);
@@ -734,7 +736,7 @@
   // Page d'un groupe dans Réglages : sa part du reste, puis ses postes
   const pageGroupeReg = (type) => {
     const [cle, titre, ic, tonG] = GRP[type];
-    pousser({ retour: 'Réglages', titre: () => titre, sous: () => V().pct[cle] + ' % du reste · ' + eur(V().normal[cle === 'enveloppes' ? 'env' : cle]) + ' un mois normal',
+    pousser({ retour: 'Réglages', titre: () => titre, sous: () => V().pct[cle] + ' % du reste · ' + eur(V().prevu[cle === 'enveloppes' ? 'env' : cle]) + ' en ' + nomDe(V().mc),
       corps: () => {
         const v = V(), refs = A.bundle().references.filter((r) => r.type === type), out = [];
         out.push(liste([ligne({ ic, ton: tonG, titre: 'Part du reste', val: v.pct[cle] + ' %', clic: () => regler('pct', { cle }), chev: true })]));
@@ -743,10 +745,10 @@
           out.push(note('Chaque mois, ' + v.pct.enveloppes + ' % du reste partent dans la caisse des enveloppes. Ces plafonds pour l’année servent de repère. Touche un montant pour le modifier.'));
           return out;
         }
-        const tot = refs.reduce((s, r) => s + Math.max(0, Number(r.montant) || 0), 0), T = v.normal[cle];
+        const tot = refs.reduce((s, r) => s + Math.max(0, Number(r.montant) || 0), 0), T = v.prevu[cle];
         const parts = refs.map((r) => (tot > 0 ? Math.max(0, Number(r.montant) || 0) / tot : 1 / refs.length)), mts = M.entiers(parts.map((p) => p * T));
-        out.push(liste(refs.map((r, i) => ligne({ ic: icone(r.poste), ton: tonG, titre: r.poste, sous: dec1(parts[i] * 100) + ' % du groupe', val: eur(mts[i]), clic: refs.length > 1 ? () => regler('part', { ref: r, part: parts[i] * 100, total: T }) : null, chev: refs.length > 1 }))));
-        out.push(note('Montants pour un mois normal. Chaque mois, la part du groupe suit ton reste du mois et se partage entre ces postes. Touche un poste pour changer sa part.'));
+        out.push(liste(refs.map((r, i) => ligne({ ic: icone(r.poste), ton: tonG, titre: r.poste, sous: dec1(parts[i] * 100) + ' % du groupe', val: eur(mts[i]), clic: refs.length > 1 ? () => regler('part', { ref: r, part: parts[i] * 100, total: tot > 0 ? tot : T }) : null, chev: refs.length > 1 }))));
+        out.push(note('Montants ' + de(nomDe(v.mc)) + ', les mêmes que dans Ce mois‑ci. Chaque mois, la part du groupe suit ton reste du mois et se partage entre ces postes. Touche un poste pour changer sa part.'));
         return out;
       } });
   };
@@ -759,17 +761,32 @@
     if (mod && mod > sav) return { txt: 'À refaire', due: true };
     return { txt: 'le ' + new Date(sav).toLocaleDateString('fr-FR').slice(0, 5), due: false };
   };
-  dash.draw('v_reglages', (c) => {
-    const v = V(), n = v.normal, p = v.pct, b = A.bundle(), out = [], sv = etatSauvegarde();
-    const [iR, iF, iV, iE, iL] = M.entiers([n.revenus, -n.fixes, -n.variables, -n.env, -n.loisirs]);
-    out.push(section('Mon budget d’un mois normal'), serre([
-      ligne({ ic: 'billet', ton: 'var(--green)', titre: 'Revenus', val: eur(iR), clic: () => pageRefs('Revenu', 'Revenus', 'Moyennes d’un mois normal. Chaque mois, le budget suit les revenus vraiment reçus.'), chev: true }),
-      ligne({ ic: 'maison', ton: 'var(--gray)', titre: 'Charges fixes', val: moins(-iF), clic: () => pageRefs('Charge fixe', 'Charges fixes', 'Montants prélevés chaque mois. Touche un montant pour le modifier.'), chev: true }),
+  // Le budget d'un mois : revenus, charges fixes, reste, plafonds des trois groupes, part de l'épargne. Mêmes chiffres que « Ce mois-ci ».
+  // `src` donne les montants (fixes, variables, env, loisirs) ; `actif` ajoute les liens vers les pages de réglage.
+  const lignesBudget = (src, rev, p, actif, sousRev) => {
+    const [iR, iF, iV, iE, iL] = M.entiers([rev, -src.fixes, -src.variables, -src.env, -src.loisirs]), lien = (f) => (actif ? f : null);
+    return [
+      ligne({ ic: 'billet', ton: 'var(--green)', titre: 'Revenus', sous: sousRev || null, val: eur(iR), clic: lien(() => pageRefs('Revenu', 'Revenus', 'Moyennes d’un mois normal. Chaque mois, le budget suit les revenus vraiment reçus.')), chev: actif }),
+      ligne({ ic: 'maison', ton: 'var(--gray)', titre: 'Charges fixes', val: moins(-iF), clic: lien(() => pageRefs('Charge fixe', 'Charges fixes', 'Montants prélevés chaque mois. Touche un montant pour le modifier.')), chev: actif }),
       ligne({ ic: 'calcul', ton: 'var(--gray)', titre: 'Reste à partager', val: eur(iR + iF) }),
-      ligne({ ic: 'panier', ton: 'var(--blue)', titre: 'Charges variables', sous: p.variables + ' % du reste', val: moins(-iV), clic: () => pageGroupeReg('Charge variable'), chev: true }),
-      ligne({ ic: 'cadeau', ton: 'var(--orange)', titre: 'Enveloppes', sous: p.enveloppes + ' % du reste', val: moins(-iE), clic: () => pageGroupeReg('Enveloppe annuelle'), chev: true }),
-      ligne({ ic: 'resto', ton: 'var(--indigo)', titre: 'Loisirs', sous: p.loisirs + ' % du reste', val: moins(-iL), clic: () => pageGroupeReg('Loisir'), chev: true }),
-      ligne({ ic: 'pieces', ton: 'var(--green)', titre: 'Épargne prévue', sous: p.epargne + ' % du reste', val: eur(iR + iF + iV + iE + iL), total: true })]), serre([ligne({ ic: 'cible', ton: 'var(--blue)', titre: 'Ma répartition 50 / 30 / 20', clic: () => pageRepere(), chev: true })]));
+      ligne({ ic: 'panier', ton: 'var(--blue)', titre: 'Charges variables', sous: p.variables + ' % du reste', val: moins(-iV), clic: lien(() => pageGroupeReg('Charge variable')), chev: actif }),
+      ligne({ ic: 'cadeau', ton: 'var(--orange)', titre: 'Enveloppes', sous: p.enveloppes + ' % du reste', val: moins(-iE), clic: lien(() => pageGroupeReg('Enveloppe annuelle')), chev: actif }),
+      ligne({ ic: 'resto', ton: 'var(--indigo)', titre: 'Loisirs', sous: p.loisirs + ' % du reste', val: moins(-iL), clic: lien(() => pageGroupeReg('Loisir')), chev: actif }),
+      ligne({ ic: 'pieces', ton: 'var(--green)', titre: 'Part pour l’épargne', sous: p.epargne + ' % du reste', val: eur(iR + iF + iV + iE + iL), total: true })];
+  };
+  // Un mois normal : ce que donneraient les revenus de référence (base des projections tant qu'aucun mois n'est terminé)
+  const pageNormal = () => pousser({
+    retour: 'Réglages', titre: () => 'Un mois normal', sous: () => 'Avec tes revenus de référence',
+    corps: () => { const v = V(); return [serre(lignesBudget({ fixes: v.normal.fixes, variables: v.normal.variables, env: v.normal.env, loisirs: v.normal.loisirs }, v.normal.revenus, v.pct, false)),
+      note('Ce que donneraient tes revenus de référence, avec les mêmes pourcentages. Il sert de base aux projections tant qu’aucun mois n’est terminé. Les revenus de référence se règlent dans Revenus.')]; }
+  });
+  dash.draw('v_reglages', (c) => {
+    const v = V(), p = v.pct, b = A.bundle(), out = [], sv = etatSauvegarde();
+    const prec = MOIS_L[(Number(v.mc.slice(5, 7)) + 10) % 12];
+    out.push(section('Mon budget ' + de(nomDe(v.mc))), serre(lignesBudget(v.prevu, v.revenus, p, true, 'Salaire ' + de(prec) + ' et aides')),
+      note('Les mêmes plafonds que dans Ce mois‑ci : ils suivent les revenus du mois. L’épargne prévue de l’onglet Épargne y ajoute le report et ce que tu ne dépenses pas.'),
+      serre([ligne({ ic: 'cible', ton: 'var(--blue)', titre: 'Ma répartition 50 / 30 / 20', clic: () => pageRepere(), chev: true }),
+        ligne({ ic: 'calendrier', ton: 'var(--teal)', titre: 'Un mois normal', clic: () => pageNormal(), chev: true })]));
     out.push(section('Mes données'), serre([
       ligne({ ic: 'import', ton: 'var(--blue)', titre: 'Importer un relevé', clic: () => $('app-file').click(), chev: true }),
       ligne({ ic: 'disque', ton: 'var(--blue)', titre: 'Sauvegarder', val: sv.txt, valCls: sv.due ? 'orange' : 'v-gris', clic: () => A.sauvegarder(), chev: true })]));
