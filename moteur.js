@@ -677,7 +677,7 @@
   }
 
   // ---------- Patrimoine ----------
-  // bundle.patrimoine : { livret: {valeur, date}, pea: [{date, valeur}], tr: {date, solde, fins: {mois: solde}}, pret: {capital, date, taux, mensualite, debut} }
+  // bundle.patrimoine : { livret: {valeur, date}, pea: [{date, valeur}], tr: {date, solde, fins: {mois: solde}, titres (actions du compte-titres, facultatif)}, pret: {capital, date, taux, mensualite, debut} }
   // Livret A : valeur saisie, ajustée par les virements depuis ou vers le livret vus sur le compte courant.
   function patrimoine(bundle, mc, depMois) {
     const P = bundle.patrimoine || {}, ops = bundle.operations || [];
@@ -720,7 +720,7 @@
       return moisLabel(m);
     };
     const aujourd = bundle.export || new Date().toISOString().slice(0, 10);
-    const livret = livretAu(aujourd), pea = peaAu(aujourd), tr = P.tr ? P.tr.solde : null, dette = detteAu(mc);
+    const livret = livretAu(aujourd), pea = peaAu(aujourd), titres = P.tr && P.tr.titres ? Number(P.tr.titres) : 0, tr = P.tr ? r2(P.tr.solde + titres) : null, dette = detteAu(mc);
     const brut = r2((livret || 0) + (pea || 0) + (tr || 0)), netV = r2(brut - (dette || 0));
     // Courbe : fins de mois, depuis le déblocage du prêt (ou 12 mois au plus)
     let m0 = moisDecale(mc, -11);
@@ -736,7 +736,7 @@
     const peaDer = (P.pea || []).slice().sort((a, b) => (a.date < b.date ? 1 : -1))[0];
     return {
       complet: livret !== null && pea !== null && tr !== null && dette !== null,
-      livret, pea, pea_date: peaDer ? frDate(peaDer.date) : '', tr, tr_date: P.tr ? frDate(P.tr.date) : '',
+      livret, pea, pea_date: peaDer ? frDate(peaDer.date) : '', tr, tr_titres: titres, tr_date: P.tr ? frDate(P.tr.date) : '',
       dette, fin_pret: finPret(), brut, net: netV, courbe,
       livret_taux: P.livret && P.livret.taux ? Number(P.livret.taux) : null,
       matelas: depMois > 0 ? Math.round((livret || 0) / depMois * 10) / 10 : 0
@@ -791,6 +791,126 @@
     return { date: rows.length ? rows[rows.length - 1][iD].slice(0, 10) : '', solde: r2(s), fins };
   }
   const estTR = (texte) => /"?account_type"?/.test(texte.slice(0, 400)) && /"?transaction_id"?/.test(texte.slice(0, 400));
+
+  // ---------- État du patrimoine net Trade Republic (PDF) ----------
+  // Le PDF est lu en mémoire puis oublié : seuls la date, la valeur du PEA, les espèces et les actions du compte-titres sont gardées.
+  // Le texte est rangé par ses polices (table ToUnicode) ; les morceaux d'une même hauteur forment une ligne, de gauche à droite.
+  const latin = (u8) => { let t = ''; for (let i = 0; i < u8.length; i += 8192) t += String.fromCharCode.apply(null, u8.subarray(i, i + 8192)); return t; };
+  // Objets à flux : { num, dict, debut, fin } (positions dans le fichier)
+  function fluxPDF(u8) {
+    const t = latin(u8), out = [], re = /(\d+)\s+\d+\s+obj\s*(<<[\s\S]*?>>)\s*stream\r?\n/g;
+    let m;
+    while ((m = re.exec(t))) {
+      const debut = m.index + m[0].length, lg = /\/Length\s+(\d+)(?!\s+\d+\s+R)/.exec(m[2]);
+      const fin = lg ? debut + Number(lg[1]) : t.indexOf('endstream', debut);
+      out.push({ num: m[1], dict: m[2], debut, fin }); re.lastIndex = fin;
+    }
+    return out;
+  }
+  async function lirePDF(buf) {
+    const u8 = buf instanceof Uint8Array ? buf : new Uint8Array(buf), donnees = {};
+    for (const f of fluxPDF(u8)) {
+      const brut = u8.subarray(f.debut, f.fin);
+      if (!/\/FlateDecode/.test(f.dict)) { donnees[f.num] = brut; continue; }
+      if (/\/Subtype\s*\/Image|\/FontFile/.test(f.dict)) continue;
+      try { donnees[f.num] = new Uint8Array(await new Response(new Blob([brut]).stream().pipeThrough(new DecompressionStream('deflate'))).arrayBuffer()); } catch (e) { /* flux illisible : ignoré */ }
+    }
+    return etatTR(textePDF(u8, donnees));
+  }
+  // Lignes de texte du PDF ; donnees : { numéro d'objet : octets du flux décompressé }
+  function textePDF(u8, donnees) {
+    const t = latin(u8), objets = {};
+    // Objets simples, et objets rangés dans des flux d'objets (ObjStm)
+    let m; const reO = /(\d+)\s+\d+\s+obj\s*([\s\S]*?)endobj/g;
+    while ((m = reO.exec(t))) objets[m[1]] = m[2];
+    fluxPDF(u8).forEach((f) => {
+      if (!/\/Type\s*\/ObjStm/.test(f.dict) || !donnees[f.num]) return;
+      const s = latin(donnees[f.num]), prem = Number((/\/First\s+(\d+)/.exec(f.dict) || [])[1]), nb = Number((/\/N\s+(\d+)/.exec(f.dict) || [])[1]);
+      const tete = s.slice(0, prem).trim().split(/\s+/).map(Number);
+      for (let i = 0; i < nb; i++) objets[tete[2 * i]] = s.slice(prem + tete[2 * i + 1], i + 1 < nb ? prem + tete[2 * i + 3] : s.length);
+    });
+    // Tables ToUnicode : code (hexadécimal) vers texte
+    const cmap = (num) => {
+      const s = donnees[num] ? latin(donnees[num]) : '', table = {}, hex = (h) => String.fromCharCode(...(h.match(/.{4}/g) || h.match(/.{2}/g) || []).map((x) => parseInt(x, 16)));
+      s.replace(/beginbfchar([\s\S]*?)endbfchar/g, (_, b) => { b.replace(/<([0-9a-fA-F]+)>\s*<([0-9a-fA-F]+)>/g, (__, c, u) => { table[parseInt(c, 16)] = hex(u); }); });
+      s.replace(/beginbfrange([\s\S]*?)endbfrange/g, (_, b) => { b.replace(/<([0-9a-fA-F]+)>\s*<([0-9a-fA-F]+)>\s*<([0-9a-fA-F]+)>/g, (__, a, z, u) => { for (let c = parseInt(a, 16), k = parseInt(u, 16); c <= parseInt(z, 16); c++, k++) table[c] = String.fromCharCode(k); }); });
+      return table;
+    };
+    // Polices : nom de ressource (/F1) vers { table, octets par code }
+    const polices = {};
+    Object.values(objets).forEach((o) => {
+      const fr = /\/Font\s*<<([^>]*)>>/.exec(o); if (!fr) return;
+      fr[1].replace(/\/([\w.+-]+)\s+(\d+)\s+\d+\s+R/g, (_, nom, num) => {
+        const f = objets[num] || '', tu = /\/ToUnicode\s+(\d+)\s+\d+\s+R/.exec(f);
+        polices[nom] = { table: tu ? cmap(tu[1]) : null, deux: /Identity-H|Type0/.test(f) };
+      });
+    });
+    const morceaux = [];
+    fluxPDF(u8).forEach((f, page) => {
+      if (/\/Type|\/Subtype|\/Length1/.test(f.dict) || !donnees[f.num]) return;
+      const s = latin(donnees[f.num]), pile = [];
+      let x = 0, y = 0, pol = null, i = 0;
+      const ecrire = (octets) => {
+        let txt = '';
+        if (pol && pol.deux) for (let k = 0; k + 1 < octets.length; k += 2) { const c = octets.charCodeAt(k) * 256 + octets.charCodeAt(k + 1); txt += pol.table && pol.table[c] !== undefined ? pol.table[c] : ''; }
+        else for (let k = 0; k < octets.length; k++) { const c = octets.charCodeAt(k); txt += pol && pol.table && pol.table[c] !== undefined ? pol.table[c] : String.fromCharCode(c); }
+        morceaux.push({ page: f.num, x, y, txt });
+      };
+      while (i < s.length) {
+        const c = s[i];
+        if (c === '(') {
+          let prof = 1, o = ''; i++;
+          while (i < s.length && prof) {
+            const d = s[i];
+            if (d === '\\') { const e = s[i + 1]; const sp = { n: '\n', r: '\r', t: '\t', b: '\b', f: '\f' }; if (/[0-7]/.test(e)) { const oc = /^[0-7]{1,3}/.exec(s.slice(i + 1))[0]; o += String.fromCharCode(parseInt(oc, 8)); i += 1 + oc.length; continue; } o += sp[e] || e; i += 2; continue; }
+            if (d === '(') prof++; else if (d === ')' && !--prof) { i++; break; }
+            o += d; i++;
+          }
+          pile.push({ s: o });
+        } else if (c === '<' && s[i + 1] !== '<') {
+          const j = s.indexOf('>', i), h = s.slice(i + 1, j).replace(/\s/g, ''); let o = '';
+          for (let k = 0; k < h.length; k += 2) o += String.fromCharCode(parseInt((h.slice(k, k + 2) + '0').slice(0, 2), 16));
+          pile.push({ s: o }); i = j + 1;
+        } else if (c === '[' || c === ']') { pile.push({ op: c }); i++; }
+        else if (/\s/.test(c)) i++;
+        else {
+          const m2 = /^[^\s()<>[\]/]+|^\/[^\s()<>[\]/]*/.exec(s.slice(i, i + 64)); const tok = m2 ? m2[0] : c; i += tok.length || 1;
+          if (/^[-+.\d]/.test(tok) || tok[0] === '/') { pile.push({ v: tok }); continue; }
+          const args = pile.splice(0);
+          if (tok === 'Tf') pol = polices[(args[0] && args[0].v || '').slice(1)] || null;
+          else if (tok === 'Tm') { x = Number(args[4] && args[4].v); y = Number(args[5] && args[5].v); }
+          else if (tok === 'Td' || tok === 'TD') { x += Number(args[0] && args[0].v); y += Number(args[1] && args[1].v); }
+          else if (tok === 'Tj' || tok === "'" || tok === '"') { const a = args.filter((q) => q.s !== undefined).pop(); if (a) ecrire(a.s); }
+          else if (tok === 'TJ') ecrire(args.filter((q) => q.s !== undefined).map((q) => q.s).join(''));
+        }
+      }
+    });
+    // Lignes : même page, même hauteur (à 2 points près), de gauche à droite
+    const lignes = [];
+    morceaux.filter((q) => q.txt.trim()).forEach((q) => {
+      let l = lignes.find((L) => L.page === q.page && Math.abs(L.y - q.y) < 2);
+      if (!l) { l = { page: q.page, y: q.y, m: [] }; lignes.push(l); }
+      l.m.push(q);
+    });
+    return lignes.map((l) => l.m.sort((a, b) => a.x - b.x).map((q) => q.txt.trim()).join(' ').replace(/\s+/g, ' '));
+  }
+  // Chiffres de l'état du patrimoine : { date, pea, especes, titres }
+  function etatTR(lignes) {
+    const tout = lignes.join('\n');
+    if (!/PATRIMOINE NET/i.test(tout)) throw new Error('Ce PDF n’est pas un « État du patrimoine net » de Trade Republic.');
+    const nb = (x) => r2(Number(x.replace(/[\s\u00a0\u202f.]/g, '').replace(',', '.')));
+    const montant = /(-?\d[\d\s\u00a0\u202f.]*,\d\d)(?:\s*EUR)?\s*$/;
+    // Première ligne qui porte ce titre ET finit par un montant (les en-têtes de section n'en ont pas)
+    const val = (re, ls) => { const l = (ls || lignes).find((q) => re.test(q) && montant.test(q)); return l ? nb(montant.exec(l)[1]) : 0; };
+    const d = /PATRIMOINE NET[\s\S]{0,40}?au\s+(\d\d)\.(\d\d)\.(\d{4})/i.exec(tout) || /DATE\s+(\d\d)\.(\d\d)\.(\d{4})/.exec(tout);
+    if (!d) throw new Error('Date introuvable dans ce PDF.');
+    // Seules les lignes du tableau « Portefeuille » comptent (avant TOTAL)
+    const fin = lignes.findIndex((q) => /^TOTAL\b/i.test(q)), tab = fin > 0 ? lignes.slice(0, fin) : lignes;
+    const pv = (re) => val(re, tab);
+    const res = { date: d[3] + '-' + d[2] + '-' + d[1], pea: pv(/^Plan d.?[ÉE]pargne en Actions/i), especes: pv(/^Esp[èe]ces\b/i), titres: pv(/^Compte-Titres\b/i), total: val(/^TOTAL\b/i) };
+    if (Math.abs(res.pea + res.especes + res.titres - res.total) > 0.02) throw new Error('Les montants de ce PDF ne tombent pas juste avec son total : rien n’a été changé.');
+    return res;
+  }
 
   // ---------- Remise à jour annuelle des montants de référence ----------
   // Propose des montants à partir des 12 derniers mois terminés. `coche` : appliqué par défaut.
@@ -883,6 +1003,6 @@
     return Object.assign({}, bundle, { references: refs, ajustements: [...faits, ...aFaire.map((a) => a.cle)] });
   }
 
-  const api = { partsDuReste, REPARTITION_DEFAUT, renommerPostes, ajusterReferences, lireExport, importer, reclasser, calculer, projeter, moisLabel, proposer, lireZip, postes, marchand, nomLisible, nomCourt, entiers, migrerEpargneCalendaire, EPARGNE, lireTR, estTR };
+  const api = { partsDuReste, REPARTITION_DEFAUT, renommerPostes, ajusterReferences, lireExport, importer, reclasser, calculer, projeter, moisLabel, proposer, lireZip, postes, marchand, nomLisible, nomCourt, entiers, migrerEpargneCalendaire, EPARGNE, lireTR, estTR, lirePDF, textePDF, etatTR };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.Moteur = api;
 })(typeof window !== 'undefined' ? window : globalThis);
