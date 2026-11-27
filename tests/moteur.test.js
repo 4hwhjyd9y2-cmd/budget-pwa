@@ -400,6 +400,15 @@
   proche('mai : la liste dit la même chose que le virement du mois terminé', em(v, '2026-05').reste, v.epargne.reste);
   proche('à virer aujourd’hui = somme des restes des mois terminés', v.a_virer, v.epargne_mois.filter((x) => x.etat === 'termine').reduce((s, x) => s + x.reste, 0));
   egal('le mois en cours ne compte pas dans « à virer aujourd’hui »', v.epargne_mois[0].etat, 'prevu');
+  // Lecture à partir de l'objectif : objectif + écarts au budget = ce que le mois laisse (revenus − dépenses + report)
+  const depuisObjectif = (k) => k.objectif + (k.plafonds - k.depenses) + (k.fixes_prevues - k.fixes) + k.sous_fixes - k.trou + k.exc + k.hors + k.interne + k.report + (k.libere || 0);
+  const enArgent = (k) => k.revenus - k.fixes - k.depenses - k.enveloppes - k.trou + k.exc + k.hors + k.interne + k.report + (k.libere || 0);
+  v.epargne_mois.filter((x) => x.etat === 'termine').forEach((x) => {
+    proche('objectif + écarts = argent réel (' + x.cle + ')', depuisObjectif(x.calcul), enArgent(x.calcul));
+    proche('objectif + écarts = à épargner (' + x.cle + ')', depuisObjectif(x.calcul), x.a_epargner);
+  });
+  const kBas = Object.assign({}, v.epargne_mois[1].calcul);
+  proche('objectif = part épargne du reste du mois', kBas.objectif, Math.max(0, kBas.revenus - kBas.fixes_prevues) * kBas.pct / 100);
   proche('avril : 70 € virés en plus, ils réduisent mai', em(v, '2026-04').en_trop, 70);
   const migreE = M.migrerEpargneCalendaire(Object.assign({}, donnees(), { migrations: [] , operations }));
   egal('migration : l’envoi du 5 juin est rattaché à mai', migreE.operations.find((o) => o.date === '2026-06-05').mois_epargne, '2026-05');
